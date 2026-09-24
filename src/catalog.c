@@ -129,7 +129,6 @@ bool catalog_open(catalog *catalogue, const char *directory) {
     bool configured =
         duckdb_set_config(configuration, "autoinstall_known_extensions", "false") == DuckDBSuccess &&
         duckdb_set_config(configuration, "autoload_known_extensions", "false") == DuckDBSuccess &&
-        duckdb_set_config(configuration, "disabled_filesystems", "HTTPFileSystem") == DuckDBSuccess &&
         duckdb_set_config(configuration, "threads", "1") == DuckDBSuccess;
     duckdb_state opened = configured ?
         duckdb_open_ext(NULL, &catalogue->database, configuration, &error) : DuckDBError;
@@ -142,7 +141,8 @@ bool catalog_open(catalog *catalogue, const char *directory) {
     if (duckdb_connect(catalogue->database, &catalogue->connection) != DuckDBSuccess) {
         return false;
     }
-    if (!create_view(catalogue, directory, "stars.parquet",
+    if (!execute(catalogue, "SET disabled_filesystems = 'HTTPFileSystem'") ||
+        !create_view(catalogue, directory, "stars.parquet",
                      "CREATE VIEW stars AS SELECT * FROM read_parquet(", ")") ||
         !create_view(catalogue, directory, "aliases.parquet",
                      "CREATE VIEW aliases AS SELECT alias, star_id FROM read_parquet(", ")") ||
