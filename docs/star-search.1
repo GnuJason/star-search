@@ -1,0 +1,68 @@
+.TH STAR-SEARCH 1 "September 2026" "star-search 0.1.0"
+.SH NAME
+star-search \- query an offline stellar catalog
+.SH SYNOPSIS
+.B star-search
+.RB [ --json ]
+.B info
+.I NAME_OR_ID
+.br
+.B star-search
+.RB [ --json ]
+.B coords
+.I NAME_OR_ID
+.br
+.B star-search
+.RB [ --json ]
+.B nearest
+.I N
+.br
+.B star-search
+.RB [ --json ]
+.RB [ --catalog-info | --version ]
+.SH DESCRIPTION
+Queries local Parquet data through embedded DuckDB. With no command, prompts
+for one star name or stable ID. No network lookup or extension download occurs.
+Exact stable IDs take precedence over exact names and aliases, followed by
+literal substring search. Ambiguity produces up to ten candidates ordered by ID.
+Select a component by performing another lookup with its stable ID.
+.SH COMMANDS
+.TP
+.B info
+Show identity, distance, coordinates, epoch, and available photometry.
+Unknown fields print as unknown, or null in JSON.
+.TP
+.B coords
+Show ICRS and Galactic coordinates in degrees and the reference epoch.
+Coordinates are not propagated to the current date.
+.TP
+.B nearest N
+Show the nearest N catalog entries with known positive distances from the Sun.
+N must be between 1 and 10000. Ties are ordered by stable ID.
+.TP
+.B --catalog-info
+Show source release, selection policy, attribution, and limitations.
+.TP
+.B --json
+Emit an object for a single lookup or an array for nearest.
+IDs are strings. Distances are in parsecs. Errors are JSON objects.
+Prompts and diagnostics go to stderr.
+.TP
+.B --version
+Show the program version without opening a catalog.
+.TP
+.B --help
+Show command syntax without opening a catalog.
+.SH ENVIRONMENT
+.TP
+.B STAR_SEARCH_DATA_DIR
+Override the catalog directory, normally /usr/share/star-search.
+It must contain stars.parquet, aliases.parquet, and catalog.json.
+Paths containing glob characters are not supported.
+.SH EXIT STATUS
+0 success; 1 runtime or catalog error; 2 invalid usage; 3 no match;
+4 ambiguous match.
+.SH LIMITATIONS
+The development fixture is synthetic and not suitable for scientific use.
+Nearest results describe the installed catalog, not a complete census.
+There is no online enrichment, mass estimation, or luminosity estimation.
