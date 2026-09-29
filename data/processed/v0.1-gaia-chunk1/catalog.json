@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "catalog_version": "v0.1-gaia-chunk1",
+  "source_catalog": "Gaia DR3, GaiaSource_000000-003111.csv",
+  "selection_rules": "phot_g_mean_mag < 16; finite parallax and parallax_error > 0; parallax / parallax_error > 5; ruwe < 1.4",
+  "distance_policy": "Use positive Gaia DR3 GSP-Phot distance estimates as published; do not invert parallax. Missing or non-positive estimates are null.",
+  "limitations": "One Gaia DR3 source chunk, not a complete stellar census. Quality cuts select a biased subset; GSP-Phot distances retain their source uncertainties.",
+  "attribution": "ESA/Gaia/DPAC; include the required Gaia DR3 acknowledgment and citation.",
+  "license": "Gaia Archive source terms; verify attribution and redistribution terms before publication.",
+  "is_fixture": false
+}

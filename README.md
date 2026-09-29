@@ -4,8 +4,9 @@ An offline-first C CLI using embedded DuckDB to query a local Parquet star
 catalog. Python owns catalog preparation; the runtime does not need Python.
 
 **Status: fixture-backed prototype, not a scientific catalog or released RPM.**
-All fixture values and names are synthetic. Gaia ingestion, scientific selection,
-validated name cross-matches, and production RPMs are not implemented.
+**Status: fixture-backed prototype with an opt-in Gaia DR3 chunk builder; not a
+complete scientific catalog or released RPM.** Gaia output is a selected subset;
+validated name cross-matches and production RPMs are not implemented.
 
 ## Build and try
 
@@ -67,6 +68,39 @@ library package. Exact openSUSE dependency names, licensing, and OBS builds must
 be verified before publishing specs. No project license has been chosen yet.
 
 ## Offline acceptance gate
+## Gaia DR3 ingestion
+
+`tools/ingest_gaia.py` reads the commented ECSV/CSV chunk, applies the magnitude
+and parallax signal-to-noise cuts, and writes a catalog directory compatible with
+the CLI. PyArrow is already included in the development requirements. For the
+provided chunk, run:
+
+```sh
+.venv/bin/python tools/ingest_gaia.py \
+  gaia_datasets/GaiaSource_000000-003111.csv \
+  --max-ruwe 1.4 \
+  --output data/processed/v0.1-gaia-chunk1
+STAR_SEARCH_DATA_DIR="$PWD/data/processed/v0.1-gaia-chunk1" build/star-search --catalog-info
+STAR_SEARCH_DATA_DIR="$PWD/data/processed/v0.1-gaia-chunk1" build/star-search --json nearest 10
+```
+
+The builder ignores leading `#` metadata lines, requires finite G magnitude below
+16, finite parallax and positive uncertainty, then requires parallax divided by
+its uncertainty to exceed 5. `--max-ruwe` adds an optional strict RUWE upper
+bound; omitting it applies no RUWE cut. Each stage's row count is printed to
+stderr. Gaia source IDs are retained as int64 and stable `gaia-dr3:<source_id>`
+IDs; the designation is a display name, not a validated cross-match. Galactic
+coordinates are copied from Gaia's `l` and `b` fields.
+
+Distances use positive `distance_gspphot` values supplied by Gaia DR3 GSP-Phot;
+parallax is never inverted. Rows without a positive estimate remain in the
+catalog with unknown distance and are excluded from `nearest`. The output includes
+`stars.parquet`, an empty `aliases.parquet`, and a manifest recording the cuts and
+provenance. Quality cuts make this a biased subset, not a complete nearby-star
+sample. Review Gaia's required acknowledgment, source-specific redistribution
+terms, and citation before publishing or packaging the generated data.
+
+## Offline acceptance gate
 
 Run tests in a fresh network namespace:
 
@@ -81,5 +115,6 @@ actual networkless installation of both RPMs and command smoke tests; developmen
 tests alone do not prove that packaging gate.
 
 Next milestone: a reproducible Gaia subset builder with documented quality cuts,
-Astropy coordinate checks, explicit distance provenance, and validated aliases.
+Next milestones: validate coordinate and distance products independently, review
+source attribution and redistribution terms, and build a production data package.
 Mass/luminosity estimation, `--raw`, unit flags, and online enrichment are deferred.
