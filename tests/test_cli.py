@@ -11,9 +11,37 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.build_catalog import ALIAS_SCHEMA, STAR_SCHEMA, build_fixture, fixture_rows
+from tools.ingest_recons import RECONS_SCHEMA
 
 
 BINARY = str(Path(sys.argv.pop(1)).resolve())
+
+
+def recons_star(identifier, system_rank, cns_name, component, common_name, distance):
+    star = {field.name: None for field in RECONS_SCHEMA}
+    star.update({
+        "id": identifier,
+        "is_recons_entry": True,
+        "system_rank": system_rank,
+        "cns_name": cns_name,
+        "component": component,
+        "common_name": common_name,
+        "ra_hms": "14 29 43.0",
+        "dec_dms": "-62 40 46",
+        "ra_deg": 217.4291666667,
+        "dec_deg": -62.6794444444,
+        "ref_epoch_jyear": 2000.0,
+        "parallax_arcsec": 1 / distance,
+        "distance_pc": distance,
+        "distance_ly": distance * 3.2615637771674336,
+        "x_pc": -0.5,
+        "y_pc": -0.4,
+        "z_pc": -1.1,
+        "galactic_longitude_deg": 313.9,
+        "galactic_latitude_deg": -1.9,
+        "source_catalog": "RECONS test fixture",
+    })
+    return star
 
 
 class CliTests(unittest.TestCase):
@@ -23,6 +51,13 @@ class CliTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.data = self.root / "data"
         build_fixture(self.data)
+        recons = [
+            recons_star("recons:gj-551", 1, "GJ 551", None, "Proxima Centauri", 1.3),
+            recons_star("recons:gj-559:a", 2, "GJ 559", "A", "alpha Centauri A", 1.34),
+            recons_star("recons:gj-559:b", 2, "GJ 559", "B", "alpha Centauri B", 1.34),
+        ]
+        pq.write_table(pa.Table.from_pylist(recons, schema=RECONS_SCHEMA),
+                       self.data / "recons_nearest.parquet")
         self.home = self.root / "home"
         self.home.mkdir()
         self.environment = {**os.environ, "STAR_SEARCH_DATA_DIR": str(self.data),
@@ -94,6 +129,19 @@ class CliTests(unittest.TestCase):
                          ["fixture:near", "fixture:pair-a", "fixture:pair-b", "fixture:special"])
         self.assertEqual(len(self.cli("nearest", "2")), 2)
 
+    def test_recons_nearest_lookup_and_ambiguity(self):
+        stars = self.cli("recons-nearest", "2")
+        self.assertEqual([star["id"] for star in stars],
+                         ["recons:gj-551", "recons:gj-559:a", "recons:gj-559:b"])
+        self.assertEqual([star["system_rank"] for star in stars], [1, 2, 2])
+        self.assertTrue(all(star["is_recons_entry"] for star in stars))
+        self.assertEqual(stars[0]["system_rank"], 1)
+        self.assertEqual(self.cli("recons-info", "Proxima Centauri")["distance_pc"], 1.3)
+        ambiguous = self.cli("recons-info", "GJ 559", status=4)
+        self.assertEqual(ambiguous["match_count"], 2)
+        self.assertEqual([candidate["id"] for candidate in ambiguous["candidates"]],
+                         ["recons:gj-559:a", "recons:gj-559:b"])
+
     def test_empty_catalog(self):
         pq.write_table(pa.Table.from_pylist([], schema=STAR_SCHEMA), self.data / "stars.parquet")
         pq.write_table(pa.Table.from_pylist([], schema=ALIAS_SCHEMA), self.data / "aliases.parquet")
@@ -121,6 +169,8 @@ class CliTests(unittest.TestCase):
                           ("nearest", "1.5"), ("nearest", "1;DROP TABLE stars"),
                           ("nearest", "999999999999999999999999999999"),
                           ("nearest", "+1"), ("info", " "), ("info",),
+                          ("recons-nearest", "0"), ("recons-nearest", "101"),
+                          ("recons-info",),
                           ("coords", "near", "extra"), ("--raw",), ("--online",)]:
             with self.subTest(arguments=arguments):
                 self.assertEqual(self.cli(*arguments, status=2)["error"], "usage")

@@ -60,6 +60,13 @@ static void print_value(duckdb_result *result, idx_t column, idx_t row, bool jso
 }
 
 void print_row(duckdb_result *result, idx_t row, bool json) {
+    bool has_distance_ly = false;
+    for (idx_t column = 0; column < duckdb_column_count(result); ++column) {
+        if (strcmp(duckdb_column_name(result, column), "distance_ly") == 0) {
+            has_distance_ly = true;
+            break;
+        }
+    }
     if (json) {
         putchar('{');
     }
@@ -81,7 +88,7 @@ void print_row(duckdb_result *result, idx_t row, bool json) {
         print_value(result, column, row, json);
         if (!json) {
             putchar('\n');
-            if (strcmp(name, "distance_pc") == 0) {
+            if (strcmp(name, "distance_pc") == 0 && !has_distance_ly) {
                 if (duckdb_value_is_null(result, column, row)) {
                     printf("%-24s  unknown\n%-24s  unknown\n", "distance_ly", "distance_ld");
                 } else {

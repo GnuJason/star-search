@@ -10,6 +10,8 @@ static void usage(void) {
     puts("Usage: star-search [--json] info NAME_OR_ID\n"
          "       star-search [--json] coords NAME_OR_ID\n"
          "       star-search [--json] nearest N\n"
+            "       star-search [--json] recons-nearest [N]\n"
+            "       star-search [--json] recons-info NAME_OR_ID\n"
          "       star-search [--json] --catalog-info\n"
          "       star-search [--json] --version\n"
          "       star-search [--json]\n\n"
@@ -28,18 +30,13 @@ static char *trim(char *text) {
     return text;
 }
 
-static int lookup(catalog *catalogue, const char *term, bool coordinates, bool json) {
-    duckdb_result result = {0};
-    if (!catalog_lookup(catalogue, term, coordinates, &result)) {
-        duckdb_destroy_result(&result);
-        return print_error(json, 1, "query_error", "Unable to query catalog.");
-    }
+static int report_lookup(duckdb_result *result, bool json, idx_t name_column) {
     int status = 0;
-    idx_t rows = duckdb_row_count(&result);
+    idx_t rows = duckdb_row_count(result);
     if (!rows) {
         status = print_error(json, 3, "not_found", "No matching star in this catalog.");
     } else if (rows > 1) {
-        int64_t total = duckdb_value_int64(&result, duckdb_column_count(&result) - 1, 0);
+        int64_t total = duckdb_value_int64(result, duckdb_column_count(result) - 1, 0);
         if (json) {
             printf("{\"error\":\"ambiguous\",\"message\":\"Select a stable ID.\","
                    "\"match_count\":%lld,\"truncated\":%s,\"candidates\":[",
@@ -48,11 +45,10 @@ static int lookup(catalog *catalogue, const char *term, bool coordinates, bool j
             fprintf(stderr, "%lld matches; showing %llu. Select a stable ID.\n",
                     (long long)total, (unsigned long long)rows);
         }
-        idx_t name_column = coordinates ? 1 : 2;
         for (idx_t row = 0; row < rows; ++row) {
-            char *identifier = duckdb_value_varchar(&result, 0, row);
-            char *name = duckdb_value_is_null(&result, name_column, row) ? NULL :
-                         duckdb_value_varchar(&result, name_column, row);
+            char *identifier = duckdb_value_varchar(result, 0, row);
+            char *name = duckdb_value_is_null(result, name_column, row) ? NULL :
+                         duckdb_value_varchar(result, name_column, row);
             if (json) {
                 if (row) {
                     putchar(',');
@@ -80,8 +76,18 @@ static int lookup(catalog *catalogue, const char *term, bool coordinates, bool j
         }
         status = 4;
     } else {
-        print_rows(&result, json, false);
+        print_rows(result, json, false);
     }
+    return status;
+}
+
+static int lookup(catalog *catalogue, const char *term, bool coordinates, bool json) {
+    duckdb_result result = {0};
+    if (!catalog_lookup(catalogue, term, coordinates, &result)) {
+        duckdb_destroy_result(&result);
+        return print_error(json, 1, "query_error", "Unable to query catalog.");
+    }
+    int status = report_lookup(&result, json, coordinates ? 1 : 2);
     duckdb_destroy_result(&result);
     return status;
 }
@@ -106,6 +112,8 @@ int main(int argc, char **argv) {
     const char *command = argument_count ? arguments[0] : NULL;
     bool metadata = command && strcmp(command, "--catalog-info") == 0;
     bool nearest = command && strcmp(command, "nearest") == 0;
+    bool recons_nearest = command && strcmp(command, "recons-nearest") == 0;
+    bool recons_info = command && strcmp(command, "recons-info") == 0;
     bool coordinates = command && strcmp(command, "coords") == 0;
     bool info = command && strcmp(command, "info") == 0;
     if (!invalid && argument_count == 1 && strcmp(command, "--help") == 0) {
@@ -116,18 +124,24 @@ int main(int argc, char **argv) {
         puts(json ? "{\"version\":\"" STAR_SEARCH_VERSION "\"}" : "star-search " STAR_SEARCH_VERSION);
         return 0;
     }
-    if (invalid || (command && !metadata && !nearest && !coordinates && !info) ||
-        (metadata && argument_count != 1) || ((nearest || coordinates || info) && argument_count != 2)) {
+    if (invalid || (command && !metadata && !nearest && !recons_nearest && !recons_info &&
+                    !coordinates && !info) || (metadata && argument_count != 1) ||
+        ((nearest || coordinates || info || recons_info) && argument_count != 2) ||
+        (recons_nearest && (argument_count < 1 || argument_count > 2))) {
         return print_error(json, 2, "usage", "Invalid arguments. See star-search --help.");
     }
-    int64_t count = 0;
-    if (nearest) {
+    int64_t count = recons_nearest ? 100 : 0;
+    if (nearest || (recons_nearest && argument_count == 2)) {
         const char *number = arguments[1];
         char *end = NULL;
         errno = 0;
         long long parsed = strtoll(number, &end, 10);
-        if (!*number || strspn(number, "0123456789") != strlen(number) || errno || *end || parsed < 1 || parsed > 10000) {
-            return print_error(json, 2, "usage", "nearest requires an integer from 1 through 10000.");
+        long long maximum = recons_nearest ? 100 : 10000;
+        if (!*number || strspn(number, "0123456789") != strlen(number) || errno || *end ||
+            parsed < 1 || parsed > maximum) {
+            return print_error(json, 2, "usage", recons_nearest ?
+                "recons-nearest requires an integer from 1 through 100." :
+                "nearest requires an integer from 1 through 10000.");
         }
         count = parsed;
     }
@@ -141,7 +155,7 @@ int main(int argc, char **argv) {
             return print_error(json, 2, "usage", "No star name or ID supplied.");
         }
         term = trim(input);
-    } else if (info || coordinates) {
+    } else if (info || coordinates || recons_info) {
         input = strdup(arguments[1]);
         if (!input) {
             return print_error(json, 1, "memory_error", "Unable to allocate input.");
@@ -162,15 +176,24 @@ int main(int argc, char **argv) {
         status = print_error(json, 1, "catalog_error",
             "Cannot open catalog. Install star-search-data or set STAR_SEARCH_DATA_DIR; "
             "DuckDB must include built-in Parquet and JSON support.");
-    } else if (metadata || nearest) {
+    } else if (metadata || nearest || recons_nearest) {
         duckdb_result result = {0};
         bool success = metadata ? catalog_metadata(&catalogue, &result) :
-                                  catalog_nearest(&catalogue, count, &result);
+                       nearest ? catalog_nearest(&catalogue, count, &result) :
+                                 catalog_recons_nearest(&catalogue, count, &result);
         if (success) {
-            print_rows(&result, json, nearest);
+            print_rows(&result, json, nearest || recons_nearest);
             status = 0;
         } else {
             status = print_error(json, 1, "query_error", "Unable to query catalog.");
+        }
+        duckdb_destroy_result(&result);
+    } else if (recons_info) {
+        duckdb_result result = {0};
+        if (catalog_recons_lookup(&catalogue, term, &result)) {
+            status = report_lookup(&result, json, 2);
+        } else {
+            status = print_error(json, 1, "query_error", "Unable to query RECONS data.");
         }
         duckdb_destroy_result(&result);
     } else {

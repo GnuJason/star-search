@@ -30,6 +30,9 @@ if(BUILD_TESTING)
     add_test(NAME gaia-ingestion COMMAND ${Python3_EXECUTABLE} -m unittest
         discover -s tests -p test_gaia_ingestion.py -v)
     set_tests_properties(gaia-ingestion PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_test(NAME recons-ingestion COMMAND ${Python3_EXECUTABLE} -m unittest
+        discover -s tests -p test_recons_ingestion.py -v)
+    set_tests_properties(recons-ingestion PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_test(NAME cli COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/tests/test_cli.py"
         $<TARGET_FILE:star-search>)
 endif()

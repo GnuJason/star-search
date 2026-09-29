@@ -4,9 +4,9 @@ An offline-first C CLI using embedded DuckDB to query a local Parquet star
 catalog. Python owns catalog preparation; the runtime does not need Python.
 
 **Status: fixture-backed prototype, not a scientific catalog or released RPM.**
-**Status: fixture-backed prototype with an opt-in Gaia DR3 chunk builder; not a
-complete scientific catalog or released RPM.** Gaia output is a selected subset;
-validated name cross-matches and production RPMs are not implemented.
+**Status: fixture-backed prototype with opt-in Gaia DR3 and RECONS 2012 ingestion;
+not a complete scientific catalog or released RPM.** Gaia output is a selected
+subset; validated cross-matches and production RPMs are not implemented.
 
 ## Build and try
 
@@ -99,6 +99,42 @@ catalog with unknown distance and are excluded from `nearest`. The output includ
 provenance. Quality cuts make this a biased subset, not a complete nearby-star
 sample. Review Gaia's required acknowledgment, source-specific redistribution
 terms, and citation before publishing or packaging the generated data.
+
+## RECONS nearest systems
+
+`tools/ingest_recons.py` extracts the fixed-width table from the original
+[RECONS page](http://recons.org/TOP100.posted.htm) and writes normalized CSV and
+Parquet. It preserves the 100 system ranks and stellar/substellar components,
+excludes planet rows, converts J2000 RA/Dec to degrees, derives parsec distances
+from the listed parallaxes, and writes heliocentric equatorial XYZ plus Galactic
+coordinates. The source is explicitly a snapshot accurate as of 2012-01-01; it
+is not a current nearest-star census, and the table’s parallax references vary by
+entry.
+
+```sh
+.venv/bin/python tools/ingest_recons.py \
+  http://recons.org/TOP100.posted.htm \
+  --output gaia_datasets/recons_nearest.parquet \
+  --csv-output gaia_datasets/recons_nearest.csv
+export STAR_SEARCH_DATA_DIR="$PWD/data/processed/v0.1-gaia-chunk1"
+export STAR_SEARCH_RECONS_DATA="$PWD/gaia_datasets/recons_nearest.parquet"
+build/star-search recons-nearest
+build/star-search --json recons-info "Proxima Centauri"
+build/star-search --json recons-info "GJ 559"
+```
+
+`recons-nearest [N]` selects the first N ranked systems (default 100) and returns
+all retained stellar components for those systems. `recons-info` accepts a CNS
+name, component ID, or common name; multi-component matches are reported as
+ambiguous. The existing `nearest N` command continues to query the selected Gaia
+catalog. RECONS rows remain a separate source table because this repository does
+not yet have validated Gaia cross-matches; the RECONS measurements are not
+silently merged over Gaia values. There is no website/frontend in this repository,
+so web routes, portraits, and badges are not part of this CLI integration.
+
+The source page provides attribution and measurement references but no explicit
+redistribution license. Review its terms and provide the required citation before
+packaging or redistributing the generated dataset.
 
 ## Offline acceptance gate
 

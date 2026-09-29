@@ -19,6 +19,16 @@ star-search \- query an offline stellar catalog
 .br
 .B star-search
 .RB [ --json ]
+.B recons-nearest
+.RI [ N ]
+.br
+.B star-search
+.RB [ --json ]
+.B recons-info
+.I NAME_OR_ID
+.br
+.B star-search
+.RB [ --json ]
 .RB [ --catalog-info | --version ]
 .SH DESCRIPTION
 Queries local Parquet data through embedded DuckDB. With no command, prompts
@@ -40,6 +50,16 @@ Coordinates are not propagated to the current date.
 Show the nearest N catalog entries with known positive distances from the Sun.
 N must be between 1 and 10000. Ties are ordered by stable ID.
 .TP
+.B recons-nearest [N]
+Show RECONS stellar components in the first N ranked systems, default 100.
+N must be between 1 and 100. This is the RECONS list accurate as of 2012-01-01,
+not a current census. RECONS data must be available beside the catalog or through
+.BR STAR_SEARCH_RECONS_DATA .
+.TP
+.B recons-info NAME_OR_ID
+Look up a RECONS CNS name, common name, or component ID. Ambiguous systems require
+selecting one of the displayed stable IDs.
+.TP
 .B --catalog-info
 Show source release, selection policy, attribution, and limitations.
 .TP
@@ -59,6 +79,10 @@ Show command syntax without opening a catalog.
 Override the catalog directory, normally /usr/share/star-search.
 It must contain stars.parquet, aliases.parquet, and catalog.json.
 Paths containing glob characters are not supported.
+.TP
+.B STAR_SEARCH_RECONS_DATA
+Optional path to recons_nearest.parquet. If unset, star-search checks the catalog
+directory for that file.
 .SH EXIT STATUS
 0 success; 1 runtime or catalog error; 2 invalid usage; 3 no match;
 4 ambiguous match.
@@ -66,3 +90,5 @@ Paths containing glob characters are not supported.
 The development fixture is synthetic and not suitable for scientific use.
 Nearest results describe the installed catalog, not a complete census.
 There is no online enrichment, mass estimation, or luminosity estimation.
+The RECONS source list is a 2012 snapshot, uses measurements from mixed references,
+and is not merged with Gaia without validated cross-matches.

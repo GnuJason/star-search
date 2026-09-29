@@ -7,12 +7,15 @@
 typedef struct {
     duckdb_database database;
     duckdb_connection connection;
+    bool has_recons;
 } catalog;
 
 bool catalog_open(catalog *catalogue, const char *directory);
 void catalog_close(catalog *catalogue);
 bool catalog_lookup(catalog *catalogue, const char *term, bool coordinates, duckdb_result *result);
 bool catalog_nearest(catalog *catalogue, int64_t count, duckdb_result *result);
+bool catalog_recons_nearest(catalog *catalogue, int64_t count, duckdb_result *result);
+bool catalog_recons_lookup(catalog *catalogue, const char *term, duckdb_result *result);
 bool catalog_metadata(catalog *catalogue, duckdb_result *result);
 
 void print_json_string(const char *text);

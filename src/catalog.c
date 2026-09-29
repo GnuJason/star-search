@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static const char *star_columns =
     "id, CAST(gaia_dr3_source_id AS VARCHAR) AS gaia_dr3_source_id, name, source_catalog, "
@@ -23,23 +24,16 @@ static bool execute(catalog *catalogue, const char *sql) {
     return success;
 }
 
-static char *local_path_literal(const char *directory, const char *filename) {
-    size_t length = strlen(directory) + strlen(filename) + 2;
-    char *path = malloc(length);
-    if (!path) {
-        return NULL;
-    }
-    snprintf(path, length, "%s/%s", directory, filename);
+static char *local_file_literal(const char *path) {
     char *resolved = realpath(path, NULL);
-    free(path);
     struct stat attributes;
     if (!resolved || stat(resolved, &attributes) != 0 || !S_ISREG(attributes.st_mode) ||
         strpbrk(resolved, "*?[]")) {
-        fprintf(stderr, "star-search: %s must be a local regular file without glob characters\n", filename);
+        fprintf(stderr, "star-search: %s must be a local regular file without glob characters\n", path);
         free(resolved);
         return NULL;
     }
-    length = strlen(resolved);
+    size_t length = strlen(resolved);
     char *literal = malloc(length * 2 + 3);
     if (!literal) {
         free(resolved);
@@ -59,6 +53,18 @@ static char *local_path_literal(const char *directory, const char *filename) {
     return literal;
 }
 
+static char *local_path_literal(const char *directory, const char *filename) {
+    size_t length = strlen(directory) + strlen(filename) + 2;
+    char *path = malloc(length);
+    if (!path) {
+        return NULL;
+    }
+    snprintf(path, length, "%s/%s", directory, filename);
+    char *literal = local_file_literal(path);
+    free(path);
+    return literal;
+}
+
 static bool create_view(catalog *catalogue, const char *directory, const char *filename,
                         const char *prefix, const char *suffix) {
     char *literal = local_path_literal(directory, filename);
@@ -75,6 +81,43 @@ static bool create_view(catalog *catalogue, const char *directory, const char *f
     free(sql);
     free(literal);
     return success;
+}
+
+static bool create_recons_view(catalog *catalogue, const char *directory) {
+    const char *configured_path = getenv("STAR_SEARCH_RECONS_DATA");
+    bool explicitly_configured = configured_path && *configured_path;
+    size_t length = explicitly_configured ? strlen(configured_path) + 1 :
+                    strlen(directory) + strlen("/recons_nearest.parquet") + 1;
+    char *path = malloc(length);
+    if (!path) {
+        return false;
+    }
+    snprintf(path, length, "%s", explicitly_configured ? configured_path :
+             "");
+    if (!explicitly_configured) {
+        snprintf(path, length, "%s/recons_nearest.parquet", directory);
+    }
+    if (!explicitly_configured && access(path, F_OK) != 0) {
+        free(path);
+        return true;
+    }
+
+    char *literal = local_file_literal(path);
+    free(path);
+    if (!literal) {
+        return !explicitly_configured;
+    }
+    size_t sql_length = strlen(literal) + 64;
+    char *sql = malloc(sql_length);
+    if (!sql) {
+        free(literal);
+        return false;
+    }
+    snprintf(sql, sql_length, "CREATE VIEW recons_stars AS SELECT * FROM read_parquet(%s)", literal);
+    catalogue->has_recons = execute(catalogue, sql);
+    free(sql);
+    free(literal);
+    return catalogue->has_recons;
 }
 
 bool catalog_metadata(catalog *catalogue, duckdb_result *result) {
@@ -154,6 +197,9 @@ bool catalog_open(catalog *catalogue, const char *directory) {
                      "license:'VARCHAR', is_fixture:'BOOLEAN'})")) {
         return false;
     }
+    if (!create_recons_view(catalogue, directory)) {
+        return false;
+    }
     duckdb_result metadata;
     bool valid = catalog_metadata(catalogue, &metadata) && duckdb_row_count(&metadata) == 1;
     if (valid) {
@@ -227,4 +273,39 @@ bool catalog_nearest(catalog *catalogue, int64_t count, duckdb_result *result) {
     snprintf(sql, sizeof(sql), "SELECT %s FROM stars WHERE distance_pc IS NOT NULL "
              "AND distance_pc > 0 AND isfinite(distance_pc) ORDER BY distance_pc, id LIMIT $1", star_columns);
     return prepared_query(catalogue, sql, NULL, count, result);
+}
+
+bool catalog_recons_nearest(catalog *catalogue, int64_t count, duckdb_result *result) {
+    if (!catalogue->has_recons) {
+        fprintf(stderr, "star-search: RECONS data is unavailable; set STAR_SEARCH_RECONS_DATA\n");
+        return false;
+    }
+    const char *sql =
+        "SELECT id, is_recons_entry, system_rank, cns_name, component, common_name, "
+        "ra_hms, dec_dms, ra_deg, dec_deg, ref_epoch_jyear, parallax_arcsec, "
+        "parallax_error_mas, distance_pc, distance_ly, proper_motion_arcsec_per_year, "
+        "proper_motion_angle_deg, proper_motion_reference, spectral_type, v_mag, v_mag_flag, "
+        "v_mag_reference, absolute_mag, mass_solar, mass_estimate_flag, notes, x_pc, y_pc, z_pc, "
+        "galactic_longitude_deg, galactic_latitude_deg, source_catalog "
+        "FROM recons_stars WHERE system_rank <= $1 ORDER BY system_rank, cns_name, component, id";
+    return prepared_query(catalogue, sql, NULL, count, result);
+}
+
+bool catalog_recons_lookup(catalog *catalogue, const char *term, duckdb_result *result) {
+    if (!catalogue->has_recons) {
+        fprintf(stderr, "star-search: RECONS data is unavailable; set STAR_SEARCH_RECONS_DATA\n");
+        return false;
+    }
+    const char *sql =
+        "SELECT id, cns_name, common_name, component, system_rank, is_recons_entry, "
+        "ra_hms, dec_dms, ra_deg, dec_deg, ref_epoch_jyear, parallax_arcsec, "
+        "parallax_error_mas, distance_pc, distance_ly, proper_motion_arcsec_per_year, "
+        "proper_motion_angle_deg, proper_motion_reference, spectral_type, v_mag, v_mag_flag, "
+        "v_mag_reference, absolute_mag, mass_solar, mass_estimate_flag, notes, x_pc, y_pc, z_pc, "
+        "galactic_longitude_deg, galactic_latitude_deg, source_catalog, "
+        "count(*) OVER () AS match_count FROM recons_stars WHERE id = $1 OR "
+        "contains(lower(cns_name), lower($1)) OR "
+        "contains(lower(cns_name || ' ' || coalesce(component, '')), lower($1)) OR "
+        "contains(lower(coalesce(common_name, '')), lower($1)) ORDER BY system_rank, id LIMIT 10";
+    return prepared_query(catalogue, sql, term, 0, result);
 }
