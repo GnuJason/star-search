@@ -3,10 +3,52 @@
 An offline-first C CLI using embedded DuckDB to query a local Parquet star
 catalog. Python owns catalog preparation; the runtime does not need Python.
 
-**Status: fixture-backed prototype, not a scientific catalog or released RPM.**
-**Status: fixture-backed prototype with opt-in Gaia DR3 and RECONS 2012 ingestion;
-not a complete scientific catalog or released RPM.** Gaia output is a selected
-subset; validated cross-matches and production RPMs are not implemented.
+**Status: data pipelines complete, CLI running on real data; renderer, website
+and packaging pending.** The catalog behind the CLI is a positional cross-match of
+the RECONS 100 nearest systems (2012 census, 142 components) with a Gaia DR3
+subset (parallax > 40 mas, 5323 sources) — 5356 stars with per-row provenance.
+It is a curated 25 pc neighbourhood, not a complete census; production RPMs are
+not implemented.
+
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `src/` | C11 CLI (`main.c`, `catalog.c`, `format.c`) using the DuckDB C API |
+| `tools/ingest_recons.py` | RECONS HTML → `gaia_datasets/recons_nearest.parquet` |
+| `tools/ingest_gaia.py` | Gaia DR3 TAP fetch + drop-in normalizer → `gaia_datasets/gaia_dr3_subset.parquet` |
+| `tools/build_merged_catalog.py` | RECONS × Gaia cross-match → `gaia_datasets/merged_catalog.parquet` + `merge_report.md` |
+| `tools/build_catalog.py` | Merged catalog (or synthetic fixture) → CLI catalog directory |
+| `tools/crosscheck_recons_pdf.py` | OCR cross-check of RECONS parallaxes against the RECONS PDF |
+| `gaia_datasets/` | Data warehouse (git-ignored; see [its README](gaia_datasets/README.md)) |
+| `docs/data-schemas.md` | Column-level schema and provenance rules for every Parquet file |
+| `docs/catalog-contract.md` | CLI catalog contract (stars/aliases/manifest, lookup rules, exit codes) |
+| `docs/star-search.1` | Manual page |
+| `tests/` | Python unit tests (run by ctest) and the CLI black-box suite |
+
+## Data pipeline (real catalog)
+
+```sh
+python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python tools/ingest_recons.py http://recons.org/TOP100.posted.htm \
+  --output gaia_datasets/recons_nearest.parquet --csv-output gaia_datasets/recons_nearest.csv
+.venv/bin/python tools/ingest_gaia.py fetch            # ESA Gaia TAP, parallax > 40 mas
+.venv/bin/python tools/ingest_gaia.py normalize --raw-dir gaia_datasets/raw \
+  --output gaia_datasets/gaia_dr3_subset.parquet
+.venv/bin/python tools/build_merged_catalog.py         # merged_catalog.parquet + merge_report.md
+.venv/bin/python tools/build_catalog.py --merged gaia_datasets/merged_catalog.parquet \
+  --output build/catalog
+export STAR_SEARCH_DATA_DIR="$PWD/build/catalog"
+build/star-search nearest 10
+build/star-search info "Barnard's Star"
+build/star-search star "GJ 65 A"                       # star == info
+build/star-search coords Sirius
+build/star-search --json info "Gaia DR3 762815470562110464"
+build/star-search recons-nearest 5
+```
+
+Larger Gaia exports (CSV/ECSV/VOTable/FITS/Parquet) drop into `gaia_datasets/raw/`
+and flow through `normalize` unchanged — see `gaia_datasets/README.md`.
 
 ## Build and try
 
@@ -67,38 +109,39 @@ attribution; `star-search` will depend on it and the distribution's DuckDB share
 library package. Exact openSUSE dependency names, licensing, and OBS builds must
 be verified before publishing specs. No project license has been chosen yet.
 
-## Offline acceptance gate
 ## Gaia DR3 ingestion
 
-`tools/ingest_gaia.py` reads the commented ECSV/CSV chunk, applies the magnitude
-and parallax signal-to-noise cuts, and writes a catalog directory compatible with
-the CLI. PyArrow is already included in the development requirements. For the
-provided chunk, run:
+`tools/ingest_gaia.py fetch` runs an ADQL query (`parallax > 40` mas by default,
+`--min-parallax` or `--adql` to change it) against the ESA Gaia TAP sync endpoint
+and stores the CSV plus a sidecar manifest (query, rows, bytes, SHA-256) in
+`gaia_datasets/raw/`. `normalize` converts any Gaia export found there into
+`gaia_dr3_subset.parquet`: it dedupes on `source_id`, keeps the raw Gaia
+astrometry, photometry and GSP-Phot parameters, and derives distance, heliocentric
+XYZ and Galactic coordinates. Distances are `1000 / parallax` when
+`parallax_over_error >= 5` (`distance_mode = inverse_parallax`), else the GSP-Phot
+distance (`gspphot`), else null (`none`); the mode is stored per row. Inversion is
+acceptable here only because of the 40 mas / SNR selection — the naive estimator
+carries no zero-point or prior correction.
 
-```sh
-.venv/bin/python tools/ingest_gaia.py \
-  gaia_datasets/GaiaSource_000000-003111.csv \
-  --max-ruwe 1.4 \
-  --output data/processed/v0.1-gaia-chunk1
-STAR_SEARCH_DATA_DIR="$PWD/data/processed/v0.1-gaia-chunk1" build/star-search --catalog-info
-STAR_SEARCH_DATA_DIR="$PWD/data/processed/v0.1-gaia-chunk1" build/star-search --json nearest 10
-```
+The legacy `ingest_gaia.py catalog <chunk.csv> --output DIR [--max-ruwe]` form
+still builds a CLI catalog directly from a bulk `GaiaSource_*.csv` chunk using the
+original G < 16 / SNR > 5 cuts and GSP-Phot distances; it is kept for tests and
+comparison but the merged catalog is the supported path.
 
-The builder ignores leading `#` metadata lines, requires finite G magnitude below
-16, finite parallax and positive uncertainty, then requires parallax divided by
-its uncertainty to exceed 5. `--max-ruwe` adds an optional strict RUWE upper
-bound; omitting it applies no RUWE cut. Each stage's row count is printed to
-stderr. Gaia source IDs are retained as int64 and stable `gaia-dr3:<source_id>`
-IDs; the designation is a display name, not a validated cross-match. Galactic
-coordinates are copied from Gaia's `l` and `b` fields.
+## Cross-match and merged catalog
 
-Distances use positive `distance_gspphot` values supplied by Gaia DR3 GSP-Phot;
-parallax is never inverted. Rows without a positive estimate remain in the
-catalog with unknown distance and are excluded from `nearest`. The output includes
-`stars.parquet`, an empty `aliases.parquet`, and a manifest recording the cuts and
-provenance. Quality cuts make this a biased subset, not a complete nearby-star
-sample. Review Gaia's required acknowledgment, source-specific redistribution
-terms, and citation before publishing or packaging the generated data.
+`tools/build_merged_catalog.py` propagates RECONS J2000 positions to J2016.0 with
+RECONS proper motions and matches each component to Gaia sources within 30″ whose
+parallax agrees within 20 %. Components sharing one printed RECONS coordinate are
+paired to candidates by brightness rank; a 60″ wide pass catches wide secondaries;
+a component whose only neighbour fails the parallax gate is linked as
+`matched_parallax_conflict` with the Gaia parallax adopted. Current result: 107
+matched + 2 conflict links (109 of 142 RECONS components, 90 of 100 systems),
+33 RECONS-only rows (bright stars saturated in Gaia, unresolved companions, T
+dwarfs), 5214 Gaia-only rows. Every row records `source_of_position`,
+`source_of_parallax`, `source_of_name`, `source_of_proper_motion` and
+`source_of_spectral_type`; `gaia_datasets/merge_report.md` lists the unmatched,
+ambiguous and conflicting entries. Column meanings: `docs/data-schemas.md`.
 
 ## RECONS nearest systems
 
@@ -116,8 +159,8 @@ entry.
   http://recons.org/TOP100.posted.htm \
   --output gaia_datasets/recons_nearest.parquet \
   --csv-output gaia_datasets/recons_nearest.csv
-export STAR_SEARCH_DATA_DIR="$PWD/data/processed/v0.1-gaia-chunk1"
-export STAR_SEARCH_RECONS_DATA="$PWD/gaia_datasets/recons_nearest.parquet"
+.venv/bin/python tools/crosscheck_recons_pdf.py   # optional: OCR check vs gaia_datasets/raw/RECON_data.pdf
+export STAR_SEARCH_DATA_DIR="$PWD/build/catalog"  # build_catalog.py --merged copies recons_nearest.parquet here
 build/star-search recons-nearest
 build/star-search --json recons-info "Proxima Centauri"
 build/star-search --json recons-info "GJ 559"
@@ -126,11 +169,12 @@ build/star-search --json recons-info "GJ 559"
 `recons-nearest [N]` selects the first N ranked systems (default 100) and returns
 all retained stellar components for those systems. `recons-info` accepts a CNS
 name, component ID, or common name; multi-component matches are reported as
-ambiguous. The existing `nearest N` command continues to query the selected Gaia
-catalog. RECONS rows remain a separate source table because this repository does
-not yet have validated Gaia cross-matches; the RECONS measurements are not
-silently merged over Gaia values. There is no website/frontend in this repository,
-so web routes, portraits, and badges are not part of this CLI integration.
+ambiguous. `nearest N` queries the merged catalog. RECONS and Gaia stay separate
+Parquet files; they meet only in `merged_catalog.parquet`, where the adopted value
+and its source are recorded side by side rather than one silently overwriting the
+other. There is no website/frontend in this repository yet; `render NAME_OR_ID`
+is reserved for the deterministic C/GLSL portrait renderer and currently exits 5
+(`not_implemented`).
 
 The source page provides attribution and measurement references but no explicit
 redistribution license. Review its terms and provide the required citation before
@@ -150,7 +194,8 @@ check no extension cache appears. The release gate additionally requires an
 actual networkless installation of both RPMs and command smoke tests; development
 tests alone do not prove that packaging gate.
 
-Next milestone: a reproducible Gaia subset builder with documented quality cuts,
-Next milestones: validate coordinate and distance products independently, review
-source attribution and redistribution terms, and build a production data package.
-Mass/luminosity estimation, `--raw`, unit flags, and online enrichment are deferred.
+Next milestones: the deterministic C/GLSL renderer behind `render`
+(`assets/stars/<id>.png`), the Next.js site and WebGPU 3D map reading the same
+Parquet files, review of attribution and redistribution terms, and a production
+data package. Mass/luminosity estimation, `--raw`, unit flags, and online
+enrichment are deferred.
