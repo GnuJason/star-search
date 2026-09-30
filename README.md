@@ -31,6 +31,8 @@ not implemented.
 | `docs/catalog-contract.md` | CLI catalog contract (stars/aliases/manifest, lookup rules, exit codes) |
 | `docs/star-search.1` | Manual page |
 | `tests/` | Python unit tests (run by ctest) and the CLI black-box suite |
+| `web/` | Next.js + Three.js website (starsearch.online); see [web/README.md](web/README.md) |
+| `web/scripts/prepare_web_data.py` | Parquet warehouse + portraits → `web/public/data/` and `web/public/stars/` (git-ignored) |
 
 ## Data pipeline (real catalog)
 
@@ -205,8 +207,11 @@ check no extension cache appears. The release gate additionally requires an
 actual networkless installation of both RPMs and command smoke tests; development
 tests alone do not prove that packaging gate.
 
-Next milestones: the Next.js site (reusing `src/shaders/star.frag` and serving
-`assets/stars/` with `index.json`) and WebGPU 3D map reading the same
-Parquet files, review of attribution and redistribution terms, and a production
-data package. Mass/luminosity estimation, `--raw`, unit flags, and online
+The website lives in [`web/`](web/README.md): a Next.js App Router site that runs
+`src/shaders/star.frag` verbatim in WebGL 2 (with a WGSL port for WebGPU), a
+Three.js 3D map, the RECONS nearest-systems pages and a catalog explorer, fed by
+`web/scripts/prepare_web_data.py`.
+
+Next milestones: production deployment of the site, review of attribution and
+redistribution terms, and a production data package. Mass/luminosity estimation, `--raw`, unit flags, and online
 enrichment are deferred.
