@@ -35,6 +35,12 @@ star-search \- query an offline stellar catalog
 .B star-search
 .RB [ --json ]
 .B render
+.RB [ --size
+.IR PX ]
+.RB [ -o
+.IR FILE ]
+.RB [ --phase
+.IR P ]
 .I NAME_OR_ID
 .br
 .B star-search
@@ -75,8 +81,31 @@ Look up a RECONS CNS name, common name, or component ID. Ambiguous systems requi
 selecting one of the displayed stable IDs.
 .TP
 .B render NAME_OR_ID
-Reserved for the deterministic star portrait renderer. Not yet implemented:
-prints a diagnostic, writes no file, and exits with status 5.
+Resolve the star with the same lookup rules as
+.BR info ,
+derive its effective temperature, radius, limb darkening, granulation and
+variability, and write a deterministic 8-bit RGB PNG portrait. The CPU evaluator
+implements the same model as the canonical GLSL shader installed under
+/usr/share/star-search/shaders. The default output is
+.IR $STAR_SEARCH_ASSETS_DIR / <gaia_source_id> .png
+(directory assets/stars when unset); stars without a Gaia ID use their stable ID
+with unsafe characters replaced. Rendering the same star with the same options
+produces a byte-identical file. With
+.BR --json ,
+prints the output path, dimensions and every derived parameter with its source.
+.TP
+.BI --size " PX"
+Square image size for
+.BR render ,
+16 to 4096 pixels, default 512.
+.TP
+.BI -o " FILE" "\fR, \fP--output" " FILE"
+Write the portrait to FILE instead of the default path. Parent directories are
+created.
+.TP
+.BI --phase " P"
+Variability phase in [0, 1] for stars Gaia flags as VARIABLE; default 0.
+Ignored for non-variable stars.
 .TP
 .B --catalog-info
 Show source release, selection policy, attribution, and limitations.
@@ -101,13 +130,21 @@ Paths containing glob characters are not supported.
 .B STAR_SEARCH_RECONS_DATA
 Optional path to recons_nearest.parquet. If unset, star-search checks the catalog
 directory for that file.
+.TP
+.B STAR_SEARCH_ASSETS_DIR
+Directory for default
+.B render
+output, default assets/stars relative to the working directory.
 .SH EXIT STATUS
-0 success; 1 runtime or catalog error; 2 invalid usage; 3 no match;
-4 ambiguous match; 5 not implemented (render).
+0 success; 1 runtime, catalog or file write error; 2 invalid usage; 3 no match;
+4 ambiguous match.
 .SH LIMITATIONS
 The development fixture is synthetic and not suitable for scientific use.
 Nearest results describe the installed catalog, not a complete census.
-There is no online enrichment, mass estimation, or luminosity estimation.
+There is no online enrichment or mass estimation. Luminosity and radius are
+estimated only to size rendered portraits; they are approximate and are not
+reported as catalog measurements. Portraits are scientific visualisations,
+not images of the stars.
 The RECONS source list is a 2012 snapshot and uses measurements from mixed
 references. Catalogs built from the merged RECONS x Gaia DR3 data record the
 cross-match provenance per row; see docs/data-schemas.md.

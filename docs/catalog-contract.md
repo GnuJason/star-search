@@ -32,6 +32,17 @@ non-nullable. Unknown measurements must be null, never zero, NaN, or infinity.
 | phot_rp_mean_mag | float64 | Gaia RP apparent magnitude, nullable |
 | spectral_type | string | Documented classification, nullable |
 
+Optional renderer inputs (additive in schema version 1). Catalogs built with
+`tools/build_catalog.py` include them; readers must tolerate their absence, and
+the CLI selects them as NULL when an older catalog lacks them:
+
+| Column | Arrow / Parquet logical type | Units / meaning |
+| --- | --- | --- |
+| teff_k | float64 | Effective temperature in kelvin (Gaia GSP-Phot), nullable |
+| bp_rp | float64 | Gaia BP-RP colour in magnitudes, nullable |
+| absolute_v_mag | float64 | Absolute V magnitude (RECONS), nullable |
+| phot_variable_flag | string | Gaia `phot_variable_flag` (`VARIABLE`, ...), nullable |
+
 Distances have one canonical representation: parsecs. Display uses
 `1 pc = 3.2615637771674336 ly` and `1 ly = 365.25 light-days` (Julian year).
 Future real-data builders must record the distance estimator and quality cuts.
@@ -96,6 +107,10 @@ star table above:
 | galactic_longitude_deg, galactic_latitude_deg | derived from the adopted ICRS position |
 | phot_g/bp/rp_mean_mag | Gaia photometry (null for RECONS-only rows) |
 | spectral_type | RECONS spectral type (null for Gaia-only rows) |
+| teff_k | `teff_gspphot_k` |
+| bp_rp | `bp_rp` |
+| absolute_v_mag | `absolute_mag` (RECONS M_V) |
+| phot_variable_flag | `phot_variable_flag` |
 
 Aliases emitted per star, deduplicated case-insensitively and never equal to the
 star's own `id` or `name`: RECONS common name, RECONS component name (`GJ 65 A`),
@@ -114,10 +129,15 @@ inversion caveat (no zero-point or prior correction).
 
 `info NAME_OR_ID`, `star NAME_OR_ID` (an exact alias of `info`), `coords NAME_OR_ID`,
 `nearest N`, `recons-nearest [N]`, `recons-info NAME_OR_ID`, `--catalog-info`,
-`--version`, and an interactive prompt are the current surface. `render NAME_OR_ID`
-is reserved for the deterministic C/GLSL portrait renderer; until it ships the
-command accepts exactly one argument, writes nothing, and exits 5 with error code
-`not_implemented` without opening the catalog. `--json` produces one JSON
+`--version`, `render NAME_OR_ID`, and an interactive prompt are the current
+surface. `render` resolves the star with the same lookup rules as `info`, derives
+physical parameters (Teff, radius, limb darkening, granulation, variability) and
+writes a deterministic PNG portrait to `$STAR_SEARCH_ASSETS_DIR/<gaia_source_id>.png`
+(default directory `assets/stars`; stars without a Gaia ID use their sanitised
+stable ID). `--size PX` (16-4096, default 512), `-o/--output FILE` and
+`--phase P` (0-1, variability phase) apply only to `render`; with `--json` it prints
+the output path and every derived parameter with its provenance. See
+[renderer.md](renderer.md). `--json` produces one JSON
 document on stdout; diagnostics and prompts go to stderr. IDs are always JSON
 strings, including Gaia IDs. Null measurements remain JSON null and print as
 `unknown` in text. JSON distances stay in parsecs; text adds light-years and
@@ -128,6 +148,6 @@ accepts 1 through 10000. It means nearest within this catalog, not a claim of
 complete coverage of the solar neighborhood. `coords` reports catalog-epoch
 coordinates, not positions propagated to the current date.
 
-Exit codes: 0 success, 1 catalog/runtime error, 2 usage error, 3 no match,
-4 ambiguous match, 5 not implemented (`render`). JSON errors have `error` and `message`; ambiguous results also
+Exit codes: 0 success, 1 catalog/runtime error (including `write_error` when a
+portrait cannot be written), 2 usage error, 3 no match, 4 ambiguous match. JSON errors have `error` and `message`; ambiguous results also
 have `match_count`, `truncated`, and `candidates`.

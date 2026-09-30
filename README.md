@@ -3,8 +3,8 @@
 An offline-first C CLI using embedded DuckDB to query a local Parquet star
 catalog. Python owns catalog preparation; the runtime does not need Python.
 
-**Status: data pipelines complete, CLI running on real data; renderer, website
-and packaging pending.** The catalog behind the CLI is a positional cross-match of
+**Status: data pipelines complete, CLI running on real data, deterministic
+C/GLSL star-portrait renderer implemented; website and packaging pending.** The catalog behind the CLI is a positional cross-match of
 the RECONS 100 nearest systems (2012 census, 142 components) with a Gaia DR3
 subset (parallax > 40 mas, 5323 sources) — 5356 stars with per-row provenance.
 It is a curated 25 pc neighbourhood, not a complete census; production RPMs are
@@ -15,6 +15,12 @@ not implemented.
 | Path | Purpose |
 | --- | --- |
 | `src/` | C11 CLI (`main.c`, `catalog.c`, `format.c`) using the DuckDB C API |
+| `src/shaders/star.frag`, `star.vert` | Canonical GLSL ES 3.00 star-portrait model (reused by the web client) |
+| `src/star_params.c`, `src/render.c` | Physical parameter derivation and the float32 CPU evaluator of `star.frag` |
+| `src/third_party/` | Vendored `stb_image_write.h` v1.16 (public domain / MIT) |
+| `tools/render_all.py` | Batch portrait renderer → `assets/stars/*.png` + `index.json` |
+| `assets/stars/` | Generated portraits (git-ignored except `.gitkeep`) |
+| `docs/renderer.md` | Renderer model, formulas, citations and determinism guarantees |
 | `tools/ingest_recons.py` | RECONS HTML → `gaia_datasets/recons_nearest.parquet` |
 | `tools/ingest_gaia.py` | Gaia DR3 TAP fetch + drop-in normalizer → `gaia_datasets/gaia_dr3_subset.parquet` |
 | `tools/build_merged_catalog.py` | RECONS × Gaia cross-match → `gaia_datasets/merged_catalog.parquet` + `merge_report.md` |
@@ -45,7 +51,13 @@ build/star-search star "GJ 65 A"                       # star == info
 build/star-search coords Sirius
 build/star-search --json info "Gaia DR3 762815470562110464"
 build/star-search recons-nearest 5
+build/star-search render "Proxima Centauri"            # assets/stars/5853498713190525696.png
+build/star-search --json render --size 1024 -o /tmp/sirius.png Sirius
+.venv/bin/python tools/render_all.py                    # all RECONS components (--subset all for 5356)
 ```
+
+Portraits are deterministic: the same star and options give a byte-identical PNG.
+The model, formulas and citations are in [docs/renderer.md](docs/renderer.md).
 
 Larger Gaia exports (CSV/ECSV/VOTable/FITS/Parquet) drop into `gaia_datasets/raw/`
 and flow through `normalize` unchanged — see `gaia_datasets/README.md`.
@@ -173,8 +185,7 @@ ambiguous. `nearest N` queries the merged catalog. RECONS and Gaia stay separate
 Parquet files; they meet only in `merged_catalog.parquet`, where the adopted value
 and its source are recorded side by side rather than one silently overwriting the
 other. There is no website/frontend in this repository yet; `render NAME_OR_ID`
-is reserved for the deterministic C/GLSL portrait renderer and currently exits 5
-(`not_implemented`).
+writes a deterministic portrait (see [docs/renderer.md](docs/renderer.md)).
 
 The source page provides attribution and measurement references but no explicit
 redistribution license. Review its terms and provide the required citation before
@@ -194,8 +205,8 @@ check no extension cache appears. The release gate additionally requires an
 actual networkless installation of both RPMs and command smoke tests; development
 tests alone do not prove that packaging gate.
 
-Next milestones: the deterministic C/GLSL renderer behind `render`
-(`assets/stars/<id>.png`), the Next.js site and WebGPU 3D map reading the same
+Next milestones: the Next.js site (reusing `src/shaders/star.frag` and serving
+`assets/stars/` with `index.json`) and WebGPU 3D map reading the same
 Parquet files, review of attribution and redistribution terms, and a production
 data package. Mass/luminosity estimation, `--raw`, unit flags, and online
 enrichment are deferred.
