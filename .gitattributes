@@ -1,1 +1,8 @@
 gaia_datasets/GaiaSource_000000-003111.csv filter=lfs diff=lfs merge=lfs -text
+# Source-tarball hygiene: keep datasets, website, portraits, and editor
+# config out of `git archive` release tarballs (openSUSE packaging = CLI source only).
+/data/ export-ignore
+/web/ export-ignore
+/gaia_datasets/ export-ignore
+/assets/ export-ignore
+/.vscode/ export-ignore

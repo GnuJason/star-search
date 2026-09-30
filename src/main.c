@@ -424,6 +424,14 @@ int main(int argc, char **argv) {
     } else {
         status = lookup(&catalogue, term, coordinates, json);
     }
+    /* Point users at the companion website for interactive exploration. Shown
+     * only for the info/star lookup, the render command, and the interactive
+     * prompt, and only in human-readable mode: --json output (which the website
+     * itself consumes) stays machine-clean. */
+    if (status == 0 && !json && (info || render || (!command && term != NULL))) {
+        puts("\nExplore the interactive catalog, star portraits, and 3D map at "
+             "https://starsearch.online");
+    }
     catalog_close(&catalogue);
     free(input);
     return status;
