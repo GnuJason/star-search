@@ -1,0 +1,32 @@
+{
+  "name": "star-search-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "star-search website: Next.js + Three.js (WebGPU with WebGL fallback) explorer of the RECONS x Gaia DR3 catalog",
+  "scripts": {
+    "sync-shaders": "node scripts/sync_shaders.mjs",
+    "predev": "npm run sync-shaders",
+    "dev": "next dev -p ${PORT:-3100}",
+    "prebuild": "npm run sync-shaders",
+    "build": "next build",
+    "start": "next start -p ${PORT:-3100}",
+    "typecheck": "npm run sync-shaders && tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.9"
+  },
+  "dependencies": {
+    "next": "^16.3.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2"
+  }
+}
