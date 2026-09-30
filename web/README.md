@@ -147,3 +147,40 @@ PORT=3100 npm start &
 curl -s localhost:3100/api/star/Sirius | head -c 300
 curl -s 'localhost:3100/api/search?q=proxima'
 ```
+
+
+## Deployment (SuperComputer VM)
+
+Live at https://starsearch.abacusai.cloud. The Next.js production server runs under
+systemd on `127.0.0.1:3100`; nginx (port 80) is the only public entry point. Both
+configs live in `web/deploy/` and are symlinked into `/etc`:
+
+| File | Symlink |
+| --- | --- |
+| `deploy/starsearch.service` | `/etc/systemd/system/starsearch.service` |
+| `deploy/starsearch.conf` | `/etc/nginx/conf.d/starsearch.conf` (`server_name starsearch.vm.internal`) |
+
+Install / redeploy:
+
+```bash
+.venv/bin/python web/scripts/prepare_web_data.py        # from repo root; data hot-reloads
+cd web && npm ci && npm run build
+sudo ln -sf "$PWD/deploy/starsearch.service" /etc/systemd/system/starsearch.service
+sudo ln -sf "$PWD/deploy/starsearch.conf"    /etc/nginx/conf.d/starsearch.conf
+sudo systemctl daemon-reload && sudo systemctl enable --now starsearch
+sudo systemctl restart starsearch                       # after a rebuild
+sudo nginx -t && sudo systemctl reload nginx
+journalctl -u starsearch -n 50 --no-pager
+```
+
+Tear down:
+
+```bash
+sudo systemctl disable --now starsearch
+sudo rm /etc/systemd/system/starsearch.service && sudo systemctl daemon-reload
+sudo rm /etc/nginx/conf.d/starsearch.conf && sudo nginx -t && sudo systemctl reload nginx
+```
+
+To serve `starsearch.online` once it is routed to this VM (Cloud Settings → Custom
+Domains → Destination: Your SuperComputer), add it to `server_name` in
+`deploy/starsearch.conf` and reload nginx.
