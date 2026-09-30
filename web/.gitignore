@@ -1,0 +1,15 @@
+# Dependencies and build output
+/node_modules/
+/.next/
+/out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Generated from the Parquet warehouse / assets by scripts/prepare_web_data.py
+/public/data/
+/public/stars/
+
+# Generated from ../src/shaders by scripts/sync_shaders.mjs
+/lib/shaders/star.generated.ts
+
+.env*.local
