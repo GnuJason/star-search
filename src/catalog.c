@@ -244,7 +244,8 @@ static bool prepared_query(catalog *catalogue, const char *sql, const char *term
     return success;
 }
 
-bool catalog_lookup(catalog *catalogue, const char *term, bool coordinates, duckdb_result *result) {
+static bool staged_lookup(catalog *catalogue, const char *term, const char *columns,
+                          duckdb_result *result) {
     const char *conditions[] = {
         "id = $1",
         "lower(name) = lower($1) OR id IN (SELECT star_id FROM aliases WHERE lower(alias) = lower($1))",
@@ -254,8 +255,7 @@ bool catalog_lookup(catalog *catalogue, const char *term, bool coordinates, duck
     char sql[2048];
     for (size_t stage = 0; stage < sizeof(conditions) / sizeof(conditions[0]); ++stage) {
         snprintf(sql, sizeof(sql), "SELECT %s, count(*) OVER () AS match_count "
-                 "FROM stars WHERE %s ORDER BY id LIMIT 10",
-                 coordinates ? coordinate_columns : star_columns, conditions[stage]);
+                 "FROM stars WHERE %s ORDER BY id LIMIT 10", columns, conditions[stage]);
         if (!prepared_query(catalogue, sql, term, 0, result)) {
             return false;
         }
@@ -266,6 +266,40 @@ bool catalog_lookup(catalog *catalogue, const char *term, bool coordinates, duck
         memset(result, 0, sizeof(*result));
     }
     return true;
+}
+
+bool catalog_lookup(catalog *catalogue, const char *term, bool coordinates, duckdb_result *result) {
+    return staged_lookup(catalogue, term, coordinates ? coordinate_columns : star_columns, result);
+}
+
+bool catalog_render_lookup(catalog *catalogue, const char *term, duckdb_result *result) {
+    /* Render inputs added after schema 1 shipped are optional: older catalogs
+     * (and the synthetic fixture built before them) simply yield NULLs. */
+    static const char *optional[][2] = {
+        {"teff_k", "DOUBLE"}, {"bp_rp", "DOUBLE"}, {"absolute_v_mag", "DOUBLE"},
+        {"phot_variable_flag", "VARCHAR"},
+    };
+    duckdb_result schema;
+    if (duckdb_query(catalogue->connection, "SELECT * FROM stars LIMIT 0", &schema) != DuckDBSuccess) {
+        duckdb_destroy_result(&schema);
+        return false;
+    }
+    char columns[1024] = "id, gaia_dr3_source_id, name, spectral_type, phot_g_mean_mag, parallax_mas";
+    for (size_t field = 0; field < sizeof(optional) / sizeof(optional[0]); ++field) {
+        bool present = false;
+        for (idx_t column = 0; column < duckdb_column_count(&schema); ++column) {
+            present = present || strcmp(duckdb_column_name(&schema, column), optional[field][0]) == 0;
+        }
+        size_t used = strlen(columns);
+        if (present) {
+            snprintf(columns + used, sizeof(columns) - used, ", %s", optional[field][0]);
+        } else {
+            snprintf(columns + used, sizeof(columns) - used, ", NULL::%s AS %s",
+                     optional[field][1], optional[field][0]);
+        }
+    }
+    duckdb_destroy_result(&schema);
+    return staged_lookup(catalogue, term, columns, result);
 }
 
 bool catalog_nearest(catalog *catalogue, int64_t count, duckdb_result *result) {

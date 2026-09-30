@@ -100,16 +100,18 @@ class CliTests(unittest.TestCase):
         text = self.cli("star", "near", json_output=False).stdout
         self.assertIn("fixture:near", text)
 
-    def test_render_not_yet_implemented(self):
-        result = self.cli("render", "near", status=5)
-        self.assertEqual(result["error"], "not_implemented")
-        self.assertIn("not yet implemented", result["message"])
-        text = self.cli("render", "near", status=5, json_output=False)
-        self.assertEqual(text.stdout, "")
-        self.assertIn("not yet implemented", text.stderr)
-        # The stub must not depend on a catalog being present.
+    def test_render_writes_portrait(self):
+        # Detailed renderer coverage (determinism, fallbacks, PNG structure) is in
+        # tests/test_render.py; this checks the CLI wiring and lookup rules.
+        self.environment["STAR_SEARCH_ASSETS_DIR"] = str(self.root / "portraits")
+        result = self.cli("render", "near", "--size", "32")
+        self.assertEqual(result["id"], "fixture:near")
+        self.assertEqual(Path(result["output"]), self.root / "portraits" / "9007199254740993.png")
+        self.assertTrue(Path(result["output"]).read_bytes().startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(self.cli("render", "Fixture Pair", status=4)["error"], "ambiguous")
+        self.assertEqual(self.cli("render", "nobody", status=3)["error"], "not_found")
         self.environment["STAR_SEARCH_DATA_DIR"] = str(self.root / "absent")
-        self.assertEqual(self.cli("render", "near", status=5)["error"], "not_implemented")
+        self.assertEqual(self.cli("render", "near", status=1)["error"], "catalog_error")
 
     def test_ambiguity(self):
         result = self.cli("info", "Fixture Pair", status=4)
@@ -190,7 +192,10 @@ class CliTests(unittest.TestCase):
                           ("recons-nearest", "0"), ("recons-nearest", "101"),
                           ("recons-info",),
                           ("coords", "near", "extra"), ("star",), ("star", "near", "extra"),
-                          ("render",), ("render", "near", "extra"), ("--raw",), ("--online",)]:
+                          ("render",), ("render", "near", "extra"),
+                          ("render", "near", "--size", "8"), ("render", "near", "--size", "big"),
+                          ("render", "near", "--phase", "1.5"), ("render", "near", "-o"),
+                          ("info", "near", "--size", "64"), ("nearest", "1", "-o", "x.png"), ("--raw",), ("--online",)]:
             with self.subTest(arguments=arguments):
                 self.assertEqual(self.cli(*arguments, status=2)["error"], "usage")
 

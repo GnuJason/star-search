@@ -43,6 +43,12 @@ STAR_SCHEMA = pa.schema([
     pa.field("phot_bp_mean_mag", pa.float64()),
     pa.field("phot_rp_mean_mag", pa.float64()),
     pa.field("spectral_type", pa.string()),
+    # Optional physical inputs for `star-search render` (schema 1 additive columns;
+    # the CLI treats them as NULL when an older catalog lacks them).
+    pa.field("teff_k", pa.float64()),
+    pa.field("bp_rp", pa.float64()),
+    pa.field("absolute_v_mag", pa.float64()),
+    pa.field("phot_variable_flag", pa.string()),
 ])
 ALIAS_SCHEMA = pa.schema([
     pa.field("alias", pa.string(), nullable=False),
@@ -195,6 +201,10 @@ def star_from_merged(row):
         "phot_bp_mean_mag": _finite(row.get("phot_bp_mean_mag")),
         "phot_rp_mean_mag": _finite(row.get("phot_rp_mean_mag")),
         "spectral_type": _text(row.get("spectral_type")),
+        "teff_k": _finite(row.get("teff_gspphot_k")),
+        "bp_rp": _finite(row.get("bp_rp")),
+        "absolute_v_mag": _finite(row.get("absolute_mag")),
+        "phot_variable_flag": _text(row.get("phot_variable_flag")),
     }
 
 

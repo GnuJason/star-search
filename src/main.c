@@ -1,7 +1,10 @@
 #include "catalog.h"
+#include "render.h"
+#include "star_params.h"
 
 #include <ctype.h>
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,11 +16,13 @@ static void usage(void) {
          "       star-search [--json] nearest N\n"
          "       star-search [--json] recons-nearest [N]\n"
          "       star-search [--json] recons-info NAME_OR_ID\n"
-         "       star-search [--json] render NAME_OR_ID    (not yet implemented; exit 5)\n"
+         "       star-search [--json] render NAME_OR_ID [--size PX] [-o FILE.png] [--phase P]\n"
          "       star-search [--json] --catalog-info\n"
          "       star-search [--json] --version\n"
          "       star-search [--json]\n\n"
          "Catalog directory: STAR_SEARCH_DATA_DIR (default: " STAR_SEARCH_DATA_DIR ")\n"
+         "render writes $STAR_SEARCH_ASSETS_DIR/<source_id>.png (default assets/stars/);\n"
+         "  --size 16..4096 (default 512), --phase 0..1 for Gaia-flagged variables.\n"
          "Quote names containing spaces. Missing measurements are unknown/null.");
 }
 
@@ -94,15 +99,227 @@ static int lookup(catalog *catalogue, const char *term, bool coordinates, bool j
     return status;
 }
 
+typedef struct {
+    int size;
+    const char *output;
+    double phase;
+} render_options;
+
+static double column_double(duckdb_result *result, idx_t column) {
+    return duckdb_value_is_null(result, column, 0) ? NAN : duckdb_value_double(result, column, 0);
+}
+
+static char *column_text(duckdb_result *result, idx_t column) {
+    return duckdb_value_is_null(result, column, 0) ? NULL : duckdb_value_varchar(result, column, 0);
+}
+
+/* Default portrait path: <assets>/<gaia source_id>.png, or the catalog id with
+ * every character outside [A-Za-z0-9._-] replaced by '-' for non-Gaia stars
+ * (e.g. recons:gj-559:a -> recons-gj-559-a.png). */
+static char *default_output_path(const star_inputs *inputs) {
+    const char *directory = getenv("STAR_SEARCH_ASSETS_DIR");
+    if (!directory || !*directory) {
+        directory = "assets/stars";
+    }
+    char stem[256];
+    if (inputs->has_source_id) {
+        snprintf(stem, sizeof(stem), "%lld", (long long)inputs->source_id);
+    } else {
+        snprintf(stem, sizeof(stem), "%s", inputs->id);
+        for (char *cursor = stem; *cursor; ++cursor) {
+            if (!isalnum((unsigned char)*cursor) && !strchr("._-", *cursor)) {
+                *cursor = '-';
+            }
+        }
+    }
+    size_t length = strlen(directory) + strlen(stem) + 6;
+    char *path = malloc(length);
+    if (path) {
+        snprintf(path, length, "%s/%s.png", directory, stem);
+    }
+    return path;
+}
+
+static void print_json_number(double value) {
+    if (isfinite(value)) {
+        printf("%.10g", value);
+    } else {
+        fputs("null", stdout);
+    }
+}
+
+static void print_json_text(const char *text) {
+    if (text) {
+        print_json_string(text);
+    } else {
+        fputs("null", stdout);
+    }
+}
+
+static int render_command(catalog *catalogue, const char *term, const render_options *options,
+                          bool json) {
+    duckdb_result result = {0};
+    if (!catalog_render_lookup(catalogue, term, &result)) {
+        duckdb_destroy_result(&result);
+        return print_error(json, 1, "query_error", "Unable to query catalog.");
+    }
+    if (duckdb_row_count(&result) != 1) {
+        int status = report_lookup(&result, json, 2);
+        duckdb_destroy_result(&result);
+        return status;
+    }
+    char *identifier = column_text(&result, 0);
+    char *name = column_text(&result, 2);
+    char *spectral_type = column_text(&result, 3);
+    char *variable_flag = column_text(&result, 9);
+    star_inputs inputs = {
+        .id = identifier,
+        .has_source_id = !duckdb_value_is_null(&result, 1, 0),
+        .source_id = duckdb_value_int64(&result, 1, 0),
+        .spectral_type = spectral_type,
+        .variable_flag = variable_flag,
+        .phot_g_mean_mag = column_double(&result, 4),
+        .parallax_mas = column_double(&result, 5),
+        .teff_k = column_double(&result, 6),
+        .bp_rp = column_double(&result, 7),
+        .absolute_v_mag = column_double(&result, 8),
+    };
+    star_render_params params;
+    star_derive_params(&inputs, options->phase, &params);
+
+    int status = 0;
+    char *path = options->output ? strdup(options->output) : default_output_path(&inputs);
+    size_t pixels = (size_t)options->size * (size_t)options->size;
+    uint8_t *rgb = malloc(pixels * 3);
+    if (!path || !rgb) {
+        status = print_error(json, 1, "memory_error", "Unable to allocate the image.");
+    } else {
+        render_star(&params, options->size, options->size, rgb);
+        if (!write_png(path, options->size, options->size, rgb)) {
+            status = print_error(json, 1, "write_error", "Unable to write the PNG output file.");
+        }
+    }
+    if (!status && json) {
+        fputs("{\"id\":", stdout);
+        print_json_text(identifier);
+        fputs(",\"name\":", stdout);
+        print_json_text(name);
+        fputs(",\"gaia_dr3_source_id\":", stdout);
+        if (inputs.has_source_id) {
+            printf("%lld", (long long)inputs.source_id);
+        } else {
+            fputs("null", stdout);
+        }
+        fputs(",\"output\":", stdout);
+        print_json_string(path);
+        printf(",\"width\":%d,\"height\":%d,\"format\":\"png\",\"parameters\":{\"teff_k\":",
+               options->size, options->size);
+        print_json_number(params.teff_k);
+        fputs(",\"teff_source\":", stdout);
+        print_json_text(params.teff_source);
+        fputs(",\"spectral_type\":", stdout);
+        print_json_text(spectral_type);
+        fputs(",\"absolute_mag\":", stdout);
+        print_json_number(params.absolute_mag);
+        fputs(",\"absolute_mag_band\":", stdout);
+        print_json_text(params.absolute_mag_band);
+        fputs(",\"bolometric_correction\":", stdout);
+        print_json_number(params.bolometric_correction);
+        fputs(",\"luminosity_solar\":", stdout);
+        print_json_number(params.luminosity_solar);
+        fputs(",\"radius_solar\":", stdout);
+        print_json_number(params.radius_solar);
+        fputs(",\"radius_source\":", stdout);
+        print_json_text(params.radius_source);
+        fputs(",\"disk_radius_fraction\":", stdout);
+        print_json_number(params.disk_radius);
+        fputs(",\"limb_darkening_u1\":", stdout);
+        print_json_number(params.limb_u1);
+        fputs(",\"limb_darkening_u2\":", stdout);
+        print_json_number(params.limb_u2);
+        fputs(",\"granulation_amplitude\":", stdout);
+        print_json_number(params.granulation_amplitude);
+        fputs(",\"granulation_frequency\":", stdout);
+        print_json_number(params.granulation_frequency);
+        printf(",\"variable\":%s,\"variability_amplitude\":", params.variable ? "true" : "false");
+        print_json_number(params.variability_amplitude);
+        fputs(",\"phase\":", stdout);
+        print_json_number(params.phase);
+        printf(",\"seed\":%lu}}\n", (unsigned long)params.seed);
+    } else if (!status) {
+        printf("%-24s  %s\n%-24s  %s\n%-24s  %s\n%-24s  %dx%d\n%-24s  %.0f K (%s)\n",
+               "id", identifier, "name", name ? name : "unknown", "output", path,
+               "size", options->size, options->size, "teff", params.teff_k, params.teff_source);
+        if (isfinite(params.luminosity_solar)) {
+            printf("%-24s  %.4g Lsun (M_%s %.3f, BC %.3f)\n", "luminosity",
+                   params.luminosity_solar, params.absolute_mag_band, params.absolute_mag,
+                   params.bolometric_correction);
+        }
+        printf("%-24s  %.4g Rsun (%s)\n%-24s  %.3f of half-frame\n%-24s  u1=%.3f u2=%.3f\n"
+               "%-24s  %s (amplitude %.2f, phase %.3f)\n%-24s  %lu\n",
+               "radius", params.radius_solar, params.radius_source, "disk_radius",
+               params.disk_radius, "limb_darkening", params.limb_u1, params.limb_u2,
+               "variable", params.variable ? "yes" : "no", params.variability_amplitude,
+               params.phase, "seed", (unsigned long)params.seed);
+    }
+    free(rgb);
+    free(path);
+    duckdb_free(identifier);
+    duckdb_free(name);
+    duckdb_free(spectral_type);
+    duckdb_free(variable_flag);
+    duckdb_destroy_result(&result);
+    return status;
+}
+
+static bool parse_integer(const char *text, long minimum, long maximum, int *out) {
+    char *end = NULL;
+    errno = 0;
+    long value = strtol(text, &end, 10);
+    if (!*text || *end || errno || value < minimum || value > maximum) {
+        return false;
+    }
+    *out = (int)value;
+    return true;
+}
+
+static bool parse_phase(const char *text, double *out) {
+    char *end = NULL;
+    errno = 0;
+    double value = strtod(text, &end);
+    if (!*text || *end || errno || !isfinite(value) || value < 0.0 || value > 1.0) {
+        return false;
+    }
+    *out = value;
+    return true;
+}
+
 int main(int argc, char **argv) {
     bool json = false;
     const char *arguments[2] = {0};
     int argument_count = 0;
     bool invalid = false;
     bool positional = false;
+    render_options options = {RENDER_DEFAULT_SIZE, NULL, 0.0};
+    bool render_flags = false;
     for (int index = 1; index < argc; ++index) {
         if (!positional && strcmp(argv[index], "--json") == 0) {
             json = true;
+        } else if (!positional && (strcmp(argv[index], "--size") == 0 ||
+                                   strcmp(argv[index], "-o") == 0 ||
+                                   strcmp(argv[index], "--output") == 0 ||
+                                   strcmp(argv[index], "--phase") == 0)) {
+            const char *flag = argv[index];
+            const char *value = index + 1 < argc ? argv[++index] : NULL;
+            render_flags = true;
+            if (!value || (strcmp(flag, "--size") == 0 &&
+                           !parse_integer(value, RENDER_MIN_SIZE, RENDER_MAX_SIZE, &options.size)) ||
+                (strcmp(flag, "--phase") == 0 && !parse_phase(value, &options.phase)) ||
+                ((strcmp(flag, "-o") == 0 || strcmp(flag, "--output") == 0) && !*value)) {
+                invalid = true;
+            } else if (strcmp(flag, "-o") == 0 || strcmp(flag, "--output") == 0) {
+                options.output = value;
+            }
         } else if (!positional && strcmp(argv[index], "--") == 0) {
             positional = true;
         } else if (argument_count < 2) {
@@ -119,7 +336,7 @@ int main(int argc, char **argv) {
     bool coordinates = command && strcmp(command, "coords") == 0;
     /* "star" is a friendlier alias of "info"; both resolve a name or stable ID. */
     bool info = command && (strcmp(command, "info") == 0 || strcmp(command, "star") == 0);
-    /* "render" is reserved for the deterministic C/GLSL renderer (assets/stars/<id>.png). */
+    /* "render" evaluates src/shaders/star.frag on the CPU and writes a PNG portrait. */
     bool render = command && strcmp(command, "render") == 0;
     if (!invalid && argument_count == 1 && strcmp(command, "--help") == 0) {
         usage();
@@ -132,13 +349,9 @@ int main(int argc, char **argv) {
     if (invalid || (command && !metadata && !nearest && !recons_nearest && !recons_info &&
                     !coordinates && !info && !render) || (metadata && argument_count != 1) ||
         ((nearest || coordinates || info || recons_info || render) && argument_count != 2) ||
-        (recons_nearest && (argument_count < 1 || argument_count > 2))) {
+        (recons_nearest && (argument_count < 1 || argument_count > 2)) ||
+        (render_flags && !render)) {
         return print_error(json, 2, "usage", "Invalid arguments. See star-search --help.");
-    }
-    if (render) {
-        return print_error(json, 5, "not_implemented",
-            "render is not yet implemented; the deterministic C/GLSL renderer arrives in a "
-            "later phase.");
     }
     int64_t count = recons_nearest ? 100 : 0;
     if (nearest || (recons_nearest && argument_count == 2)) {
@@ -165,7 +378,7 @@ int main(int argc, char **argv) {
             return print_error(json, 2, "usage", "No star name or ID supplied.");
         }
         term = trim(input);
-    } else if (info || coordinates || recons_info) {
+    } else if (info || coordinates || recons_info || render) {
         input = strdup(arguments[1]);
         if (!input) {
             return print_error(json, 1, "memory_error", "Unable to allocate input.");
@@ -206,6 +419,8 @@ int main(int argc, char **argv) {
             status = print_error(json, 1, "query_error", "Unable to query RECONS data.");
         }
         duckdb_destroy_result(&result);
+    } else if (render) {
+        status = render_command(&catalogue, term, &options, json);
     } else {
         status = lookup(&catalogue, term, coordinates, json);
     }
