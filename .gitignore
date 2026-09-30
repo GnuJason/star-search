@@ -12,3 +12,7 @@ __pycache__/
 !/gaia_datasets/README.md
 /data/raw/
 /data/processed/
+
+# Generated star portraits (bulk binaries): regenerate with tools/render_all.py.
+/assets/stars/*
+!/assets/stars/.gitkeep
