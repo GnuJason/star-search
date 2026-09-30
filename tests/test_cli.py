@@ -93,6 +93,24 @@ class CliTests(unittest.TestCase):
     def test_id_precedes_alias(self):
         self.assertEqual(self.cli("info", "fixture:near")["id"], "fixture:near")
 
+    def test_star_is_alias_of_info(self):
+        self.assertEqual(self.cli("star", "near"), self.cli("info", "near"))
+        self.assertEqual(self.cli("star", "Fixture Pair", status=4)["error"], "ambiguous")
+        self.assertEqual(self.cli("star", "nobody", status=3)["error"], "not_found")
+        text = self.cli("star", "near", json_output=False).stdout
+        self.assertIn("fixture:near", text)
+
+    def test_render_not_yet_implemented(self):
+        result = self.cli("render", "near", status=5)
+        self.assertEqual(result["error"], "not_implemented")
+        self.assertIn("not yet implemented", result["message"])
+        text = self.cli("render", "near", status=5, json_output=False)
+        self.assertEqual(text.stdout, "")
+        self.assertIn("not yet implemented", text.stderr)
+        # The stub must not depend on a catalog being present.
+        self.environment["STAR_SEARCH_DATA_DIR"] = str(self.root / "absent")
+        self.assertEqual(self.cli("render", "near", status=5)["error"], "not_implemented")
+
     def test_ambiguity(self):
         result = self.cli("info", "Fixture Pair", status=4)
         self.assertEqual(result["error"], "ambiguous")
@@ -171,7 +189,8 @@ class CliTests(unittest.TestCase):
                           ("nearest", "+1"), ("info", " "), ("info",),
                           ("recons-nearest", "0"), ("recons-nearest", "101"),
                           ("recons-info",),
-                          ("coords", "near", "extra"), ("--raw",), ("--online",)]:
+                          ("coords", "near", "extra"), ("star",), ("star", "near", "extra"),
+                          ("render",), ("render", "near", "extra"), ("--raw",), ("--online",)]:
             with self.subTest(arguments=arguments):
                 self.assertEqual(self.cli(*arguments, status=2)["error"], "usage")
 

@@ -8,10 +8,12 @@
 
 static void usage(void) {
     puts("Usage: star-search [--json] info NAME_OR_ID\n"
+         "       star-search [--json] star NAME_OR_ID      (alias of info)\n"
          "       star-search [--json] coords NAME_OR_ID\n"
          "       star-search [--json] nearest N\n"
-            "       star-search [--json] recons-nearest [N]\n"
-            "       star-search [--json] recons-info NAME_OR_ID\n"
+         "       star-search [--json] recons-nearest [N]\n"
+         "       star-search [--json] recons-info NAME_OR_ID\n"
+         "       star-search [--json] render NAME_OR_ID    (not yet implemented; exit 5)\n"
          "       star-search [--json] --catalog-info\n"
          "       star-search [--json] --version\n"
          "       star-search [--json]\n\n"
@@ -115,7 +117,10 @@ int main(int argc, char **argv) {
     bool recons_nearest = command && strcmp(command, "recons-nearest") == 0;
     bool recons_info = command && strcmp(command, "recons-info") == 0;
     bool coordinates = command && strcmp(command, "coords") == 0;
-    bool info = command && strcmp(command, "info") == 0;
+    /* "star" is a friendlier alias of "info"; both resolve a name or stable ID. */
+    bool info = command && (strcmp(command, "info") == 0 || strcmp(command, "star") == 0);
+    /* "render" is reserved for the deterministic C/GLSL renderer (assets/stars/<id>.png). */
+    bool render = command && strcmp(command, "render") == 0;
     if (!invalid && argument_count == 1 && strcmp(command, "--help") == 0) {
         usage();
         return 0;
@@ -125,10 +130,15 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (invalid || (command && !metadata && !nearest && !recons_nearest && !recons_info &&
-                    !coordinates && !info) || (metadata && argument_count != 1) ||
-        ((nearest || coordinates || info || recons_info) && argument_count != 2) ||
+                    !coordinates && !info && !render) || (metadata && argument_count != 1) ||
+        ((nearest || coordinates || info || recons_info || render) && argument_count != 2) ||
         (recons_nearest && (argument_count < 1 || argument_count > 2))) {
         return print_error(json, 2, "usage", "Invalid arguments. See star-search --help.");
+    }
+    if (render) {
+        return print_error(json, 5, "not_implemented",
+            "render is not yet implemented; the deterministic C/GLSL renderer arrives in a "
+            "later phase.");
     }
     int64_t count = recons_nearest ? 100 : 0;
     if (nearest || (recons_nearest && argument_count == 2)) {

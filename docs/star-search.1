@@ -9,6 +9,11 @@ star-search \- query an offline stellar catalog
 .br
 .B star-search
 .RB [ --json ]
+.B star
+.I NAME_OR_ID
+.br
+.B star-search
+.RB [ --json ]
 .B coords
 .I NAME_OR_ID
 .br
@@ -29,6 +34,11 @@ star-search \- query an offline stellar catalog
 .br
 .B star-search
 .RB [ --json ]
+.B render
+.I NAME_OR_ID
+.br
+.B star-search
+.RB [ --json ]
 .RB [ --catalog-info | --version ]
 .SH DESCRIPTION
 Queries local Parquet data through embedded DuckDB. With no command, prompts
@@ -41,6 +51,10 @@ Select a component by performing another lookup with its stable ID.
 .B info
 Show identity, distance, coordinates, epoch, and available photometry.
 Unknown fields print as unknown, or null in JSON.
+.TP
+.B star
+Alias of
+.BR info .
 .TP
 .B coords
 Show ICRS and Galactic coordinates in degrees and the reference epoch.
@@ -59,6 +73,10 @@ not a current census. RECONS data must be available beside the catalog or throug
 .B recons-info NAME_OR_ID
 Look up a RECONS CNS name, common name, or component ID. Ambiguous systems require
 selecting one of the displayed stable IDs.
+.TP
+.B render NAME_OR_ID
+Reserved for the deterministic star portrait renderer. Not yet implemented:
+prints a diagnostic, writes no file, and exits with status 5.
 .TP
 .B --catalog-info
 Show source release, selection policy, attribution, and limitations.
@@ -85,10 +103,11 @@ Optional path to recons_nearest.parquet. If unset, star-search checks the catalo
 directory for that file.
 .SH EXIT STATUS
 0 success; 1 runtime or catalog error; 2 invalid usage; 3 no match;
-4 ambiguous match.
+4 ambiguous match; 5 not implemented (render).
 .SH LIMITATIONS
 The development fixture is synthetic and not suitable for scientific use.
 Nearest results describe the installed catalog, not a complete census.
 There is no online enrichment, mass estimation, or luminosity estimation.
-The RECONS source list is a 2012 snapshot, uses measurements from mixed references,
-and is not merged with Gaia without validated cross-matches.
+The RECONS source list is a 2012 snapshot and uses measurements from mixed
+references. Catalogs built from the merged RECONS x Gaia DR3 data record the
+cross-match provenance per row; see docs/data-schemas.md.

@@ -72,10 +72,52 @@ must never be published as `star-search-data`. Production data and OBS submissio
 remain gated on real source selection, cross-match validation, attribution,
 redistribution review, and an offline installation test.
 
+Catalogs built with `--merged` add informative fields that readers must tolerate
+and may ignore: `generated_on`, `source_file`, `star_count`, `alias_count`,
+`match_status_counts`, and `merged_catalog_metadata` (the Parquet key/value
+metadata of the merged catalog it was built from).
+
+## Building a catalog from the merged RECONS x Gaia DR3 data
+
+`tools/build_catalog.py --merged gaia_datasets/merged_catalog.parquet --output DIR`
+projects the merged catalog (schema in [data-schemas.md](data-schemas.md)) onto the
+star table above:
+
+| Star column | Merged source |
+| --- | --- |
+| id | `id` (`gaia-dr3:<source_id>` or `recons:<slug>`) |
+| gaia_dr3_source_id | `gaia_source_id` (null for RECONS-only rows) |
+| name | `primary_name` |
+| source_catalog | `source_catalogs` (`RECONS+Gaia DR3`, `Gaia DR3`, or `RECONS`) |
+| ra_deg, dec_deg, ref_epoch_jyear | ICRS position at J2016.0 (Gaia, or RECONS propagated) |
+| parallax_mas, parallax_error_mas | adopted parallax (`source_of_parallax` decides) |
+| distance_pc | `1000 / parallax_mas` |
+| distance_method | `inverse_parallax:gaia` or `inverse_parallax:recons` |
+| galactic_longitude_deg, galactic_latitude_deg | derived from the adopted ICRS position |
+| phot_g/bp/rp_mean_mag | Gaia photometry (null for RECONS-only rows) |
+| spectral_type | RECONS spectral type (null for Gaia-only rows) |
+
+Aliases emitted per star, deduplicated case-insensitively and never equal to the
+star's own `id` or `name`: RECONS common name, RECONS component name (`GJ 65 A`),
+the bare CNS/GJ system name (`GJ 65`, shared by components and therefore
+ambiguous by design), `LHS <n>`, the RECONS row id (`recons:gj-65:a`), the Gaia
+designation (`Gaia DR3 <source_id>`), and the bare Gaia `source_id`. The builder
+also copies `recons_nearest.parquet` into the output directory so the
+`recons-*` commands work from the same `STAR_SEARCH_DATA_DIR`.
+
+Inverse-parallax distances are permitted here because the selection guarantees
+parallax > 40 mas with `parallax_over_error` >= 5 for Gaia rows, and RECONS lists
+only trigonometric parallaxes; the manifest records this policy and the naive
+inversion caveat (no zero-point or prior correction).
+
 ## CLI behavior
 
-`info NAME_OR_ID`, `coords NAME_OR_ID`, `nearest N`, `--catalog-info`, `--version`,
-and an interactive prompt are the initial surface. `--json` produces one JSON
+`info NAME_OR_ID`, `star NAME_OR_ID` (an exact alias of `info`), `coords NAME_OR_ID`,
+`nearest N`, `recons-nearest [N]`, `recons-info NAME_OR_ID`, `--catalog-info`,
+`--version`, and an interactive prompt are the current surface. `render NAME_OR_ID`
+is reserved for the deterministic C/GLSL portrait renderer; until it ships the
+command accepts exactly one argument, writes nothing, and exits 5 with error code
+`not_implemented` without opening the catalog. `--json` produces one JSON
 document on stdout; diagnostics and prompts go to stderr. IDs are always JSON
 strings, including Gaia IDs. Null measurements remain JSON null and print as
 `unknown` in text. JSON distances stay in parsecs; text adds light-years and
@@ -87,5 +129,5 @@ complete coverage of the solar neighborhood. `coords` reports catalog-epoch
 coordinates, not positions propagated to the current date.
 
 Exit codes: 0 success, 1 catalog/runtime error, 2 usage error, 3 no match,
-4 ambiguous match. JSON errors have `error` and `message`; ambiguous results also
+4 ambiguous match, 5 not implemented (`render`). JSON errors have `error` and `message`; ambiguous results also
 have `match_count`, `truncated`, and `candidates`.
