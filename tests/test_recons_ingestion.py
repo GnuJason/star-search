@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 import pyarrow.parquet as pq
 
-from tools.ingest_recons import RECONS_SCHEMA, build_recons_catalog, parse_recons_html
+from tools.ingest_recons import (RECONS_SCHEMA, build_recons_catalog, parse_recons_html,
+                                 validate_recons_records)
 
 
 def source_row(rank, cns, component=None, object_count="1", lhs="-", ra="14 29 43.0",
@@ -65,12 +66,46 @@ class ReconsIngestionTests(unittest.TestCase):
             (proxima["x_pc"] ** 2 + proxima["y_pc"] ** 2 + proxima["z_pc"] ** 2) ** 0.5,
             proxima["distance_pc"],
         )
+        self.assertAlmostEqual(proxima["parallax_mas"], 768.85)
+        self.assertEqual(proxima["parallax_source_count"], 4)  # YHB*
+        self.assertEqual(proxima["planet_count"], 0)
+        # Total proper motion 3.853"/yr at PA 281.5 deg -> west-north-west motion.
+        self.assertAlmostEqual(proxima["pmra_mas_per_year"], 3853 * -0.98006, delta=1)
+        self.assertAlmostEqual(proxima["pmdec_mas_per_year"], 3853 * 0.19937, delta=1)
+        self.assertEqual(by_id["recons:gj-559:a"]["system_name"], "GJ 551")
+        self.assertEqual(by_id["recons:gj-559:a"]["parallax_source_count"], 4)  # fixture reuses YHB*
+        self.assertTrue(by_id["recons:gj-559:a"]["source_line"].startswith("     GJ 559"))
         self.assertEqual(by_id["recons:gj-559:b"]["mass_solar"], 0.5)
         self.assertEqual(by_id["recons:gj-559:b"]["mass_estimate_flag"], "*")
         self.assertIn("recons:scr-1845-6357:a", by_id)
         self.assertIn("recons:scr-1845-6357:b", by_id)
         self.assertNotIn("recons:gj-551:p1", by_id)
         self.assertNotIn("recons:gj-408", by_id)
+
+    def test_planet_count_and_bare_punctuation_common_name(self):
+        rows = [
+            source_row(1, "GJ 876", "A", "1+4P", "530", common="Ross 780"),
+            source_row(None, "GJ 1061", object_count="1", lhs="1565", common=", "),
+        ]
+        html = "<HTML><PRE>\n" + "".join(rows) + "FORMER TOP 100 MEMBERS\n</HTML>"
+        with patch("tools.ingest_recons.EXPECTED_RANKS", {1}):
+            records = {record["id"]: record for record in parse_recons_html(html)}
+        self.assertEqual(records["recons:gj-876:a"]["planet_count"], 4)
+        self.assertEqual(records["recons:gj-876:a"]["num_objects"], "1+4P")
+        self.assertIsNone(records["recons:gj-1061"]["common_name"])
+
+    def test_validate_records_requires_anchor_distances(self):
+        with patch("tools.ingest_recons.EXPECTED_RANKS", {1}):
+            records = parse_recons_html(sample_html())
+        with patch("tools.ingest_recons.EXPECTED_RANKS", {1}), \
+                patch("tools.ingest_recons.VALIDATION_ANCHORS",
+                      {"recons:gj-551": ("Proxima Centauri", 1.30, 0.02)}):
+            self.assertTrue(validate_recons_records(records))
+        with patch("tools.ingest_recons.EXPECTED_RANKS", {1}), \
+                patch("tools.ingest_recons.VALIDATION_ANCHORS",
+                      {"recons:gj-551": ("Proxima Centauri", 2.0, 0.02)}):
+            with self.assertRaises(ValueError):
+                validate_recons_records(records)
 
     def test_write_parquet_and_csv_with_source_metadata(self):
         with tempfile.TemporaryDirectory() as directory:

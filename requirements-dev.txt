@@ -1,1 +1,11 @@
+# Development / data-pipeline dependencies for star-search.
+# The C runtime does not need Python; these are for tools/ and tests/.
 pyarrow==23.0.1
+duckdb>=1.4,<2
+pandas>=2.2
+numpy>=1.26
+requests>=2.32
+astropy>=6.1
+beautifulsoup4>=4.12
+lxml>=5.2
+pytest>=8.2

@@ -3,3 +3,12 @@
 /.deps/
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# Datasets live on the data-warehouse VM, never in git (GitHub = code only).
+# Keep only the directory marker and its README.
+/gaia_datasets/*
+!/gaia_datasets/.gitkeep
+!/gaia_datasets/README.md
+/data/raw/
+/data/processed/
