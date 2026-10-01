@@ -211,20 +211,196 @@ The command-to-endpoint mapping is: `info`/`star`/`coords` → `/api/star/:id`;
 `recons-info` → `/api/nearest`; `--catalog-info` → `/api/catalog`; `render` →
 `/api/star/:id` followed by a local GLSL render.
 
-## Installation and packaging
+## Installation
 
-With `CMAKE_INSTALL_PREFIX=/usr`, installation places the binary in `/usr/bin`,
-the manual in `/usr/share/man/man1`, the shaders under the package data
-directory, and documentation in the CMake doc directory. There is no catalog
-data to install — the binary reaches the catalog over the API — so the package
-is light: it depends only on the libcurl and libcjson shared libraries.
+star-search is a lightweight, API-backed CLI: at runtime it depends only on the
+libcurl and libcjson shared libraries, ships no catalog data (the binary reaches
+the catalog over the API), and needs no C++ toolchain. Building from source works
+on any Linux distribution with a C11 compiler; RPM packaging inputs are provided
+for openSUSE and other RPM-based systems.
+
+Recommended installation methods:
+
+1. **Build and install from source** — the primary, first-class method, supported
+   on every Linux distribution with a C11 compiler, CMake 3.20+, and the libcurl
+   and libcjson development packages. See
+   [Build and install from source](#build-and-install-from-source).
+2. **Source tarball** — a reproducible, dataset-free tarball for users who do not
+   want to clone the repository. See
+   [Install from the source tarball](#install-from-the-source-tarball).
+3. **RPM package (openSUSE / RPM-based)** — build the RPM from the provided spec
+   and install it. An openSUSE repository submission is in preparation; see
+   [RPM installation](#rpm-installation).
+4. **Debian / Ubuntu** — no `.deb` is currently provided; use the from-source
+   method above, which builds against your system's own libraries.
+
+No project APT or RPM repository is hosted yet, and no GitHub Release is published
+yet, so there is no `apt install star-search` or `zypper install star-search`
+path at this time. The sections below describe exactly what works today.
+
+### Distribution support
+
+- General Linux distributions: source build supported with the documented C11
+  toolchain and dependencies (libcurl + libcjson development packages).
+- openSUSE / RPM-based: the RPM spec in [`packaging/`](packaging/README.md) builds
+  cleanly from the reproducible source tarball; submission to the openSUSE
+  `utilities` devel project is in preparation and not yet in the official repos.
+- Debian / Ubuntu: build from the source tarball or the repository; no `.deb`
+  package is provided.
+
+### Supported platforms
+
+| Platform | Installation method |
+| --- | --- |
+| General Linux (any distro) | Source build with a C11 compiler, CMake 3.20+, pkg-config, libcurl, and libcjson development packages |
+| openSUSE / RPM-based | Build the RPM from `packaging/star-search.spec`; official-repository submission in preparation |
+| Debian / Ubuntu | Source build (no `.deb` provided); install `libcurl4-openssl-dev` and `libcjson-dev` |
+
+star-search links only `libcurl.so.4` and `libcjson.so.1`, both widely packaged,
+so the source build has no unusual dependency constraints. A trusted CA store is
+needed at runtime for HTTPS catalog lookups; portrait rendering is fully local
+and offline.
+
+### Build and install from source
+
+Install the build dependencies for your distribution.
+
+Debian / Ubuntu:
+
+```sh
+sudo apt update
+sudo apt install build-essential cmake pkg-config \
+  libcurl4-openssl-dev libcjson-dev
+```
+
+Fedora / RHEL-family:
+
+```sh
+sudo dnf install gcc cmake pkgconf-pkg-config \
+  libcurl-devel libcjson-devel
+```
+
+openSUSE:
+
+```sh
+sudo zypper install gcc cmake pkg-config \
+  libcurl-devel libcjson-devel
+```
+
+Then configure, build, install, and verify:
+
+```sh
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build
+sudo cmake --install build
+star-search --version
+```
+
+Build as your ordinary user; only the system-wide install step needs elevated
+privileges. With `CMAKE_INSTALL_PREFIX=/usr` the install places the binary in
+`/usr/bin`, the manual in `/usr/share/man/man1`, the GLSL shaders under
+`/usr/share/star-search/shaders`, and the docs in the CMake doc directory. There
+is no catalog data to install.
+
+cJSON development headers must be discoverable by the compiler and pkg-config. If
+`libcjson-dev` / `libcjson-devel` is unavailable on your distribution, install
+cJSON with your distribution's equivalent package or the
+[upstream cJSON build instructions](https://github.com/DaveGamble/cJSON#building);
+a custom prefix may require setting `PKG_CONFIG_PATH`.
+
+### Install from the source tarball
+
+If you do not want to clone the repository, build a reproducible, dataset-free
+source tarball from a clean checkout. `.gitattributes` strips the datasets,
+website, and portraits, so only the C/GLSL CLI, its man page, shaders, and docs
+are included:
+
+```sh
+git archive --format=tar.gz --prefix=star-search-1.0/ \
+  -o star-search-1.0.tar.gz HEAD
+```
+
+Then extract and build it exactly like a source checkout:
+
+```sh
+tar -xvf star-search-1.0.tar.gz
+cd star-search-1.0
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build
+sudo cmake --install build
+star-search --version
+```
+
+When a tagged v1.0 GitHub Release is published, this same `star-search-1.0.tar.gz`
+will be downloadable from the release page, so the method will need neither Git
+nor a clone.
+
+### RPM installation
 
 [`packaging/`](packaging/README.md) contains the openSUSE RPM spec and the OBS
 submission notes. The spec builds `star-search` 1.0 against `pkgconfig(libcurl)`
-and `pkgconfig(libcjson)` with no DuckDB or bundled dependencies, which is what
-makes it submittable to openSUSE (DuckDB is not yet in Factory). The
-reproducible source tarball is produced from a clean checkout with
-`git archive --prefix=star-search-1.0/ -o star-search-1.0.tar.gz HEAD`.
+and `pkgconfig(libcjson)` with no DuckDB or bundled dependencies — both libraries
+are in openSUSE Factory, which is what makes the package submittable.
+
+Build the RPM from the reproducible tarball and install it:
+
+```sh
+cp packaging/star-search.spec ~/rpmbuild/SPECS/
+git archive --format=tar.gz --prefix=star-search-1.0/ \
+  -o ~/rpmbuild/SOURCES/star-search-1.0.tar.gz HEAD
+rpmbuild -ba ~/rpmbuild/SPECS/star-search.spec     # add --nodeps on a non-openSUSE host
+sudo zypper install ./star-search-1.0-1.x86_64.rpm # or: sudo rpm -i <path to the .rpm>
+star-search --version
+```
+
+`zypper install ./<file>.rpm` resolves runtime dependencies from your enabled
+repositories; `rpm -i` does not. For other RPM-based distributions, rebuild from
+the tarball with their equivalent libcurl and libcjson development packages.
+
+#### openSUSE submission status
+
+The RPM spec is maintained at
+[`packaging/star-search.spec`](packaging/star-search.spec). Submission to the
+openSUSE `utilities` devel project is in preparation and documented in
+[`packaging/README.md`](packaging/README.md); the OBS steps require an openSUSE
+account and are run by the maintainer. star-search is **not** yet in the official
+openSUSE repositories, so `zypper install star-search` (from a repository) does
+not work yet.
+
+### Staged and user-local installation
+
+Staged installation, without changing the host, using `DESTDIR`:
+
+```sh
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build
+DESTDIR="$PWD/stage" cmake --install build
+test -x stage/usr/bin/star-search
+```
+
+User-local installation under `$HOME/.local` (no sudo):
+
+```sh
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+cmake --build build
+cmake --install build
+"$HOME/.local/bin/star-search" --version
+```
+
+Put `$HOME/.local/bin` on your PATH when using a user-local install.
+
+### Uninstall
+
+CMake records every installed file in `build/install_manifest.txt`. Remove them
+(use `sudo` for a system-wide prefix):
+
+```sh
+sudo xargs rm -v < build/install_manifest.txt
+```
+
+Then remove the now-empty `share/star-search` directory under your install prefix
+to drop the installed shaders. An RPM install is removed with
+`sudo rpm -e star-search` (or `sudo zypper remove star-search`).
 
 ## Offline data preparation (maintainer workflow)
 
