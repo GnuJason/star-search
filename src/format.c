@@ -29,25 +29,25 @@ static void print_text(const char *text) {
     }
 }
 
-static void print_value(duckdb_result *result, idx_t column, idx_t row, bool json) {
-    if (duckdb_value_is_null(result, column, row)) {
+static void print_value(catalog_result *result, idx_t column, idx_t row, bool json) {
+    if (result_value_is_null(result, column, row)) {
         fputs(json ? "null" : "unknown", stdout);
         return;
     }
-    duckdb_type type = duckdb_column_type(result, column);
-    if (type == DUCKDB_TYPE_DOUBLE || type == DUCKDB_TYPE_FLOAT) {
-        double value = duckdb_value_double(result, column, row);
+    result_type type = result_column_type(result, column);
+    if (type == RESULT_TYPE_DOUBLE) {
+        double value = result_value_double(result, column, row);
         if (!isfinite(value)) {
             fputs(json ? "null" : "unknown", stdout);
         } else {
             printf(json ? "%.17g" : "%.8g", value);
         }
-    } else if (type == DUCKDB_TYPE_BOOLEAN) {
-        fputs(duckdb_value_boolean(result, column, row) ? "true" : "false", stdout);
-    } else if (type == DUCKDB_TYPE_INTEGER || type == DUCKDB_TYPE_BIGINT) {
-        printf("%lld", (long long)duckdb_value_int64(result, column, row));
+    } else if (type == RESULT_TYPE_BOOLEAN) {
+        fputs(result_value_boolean(result, column, row) ? "true" : "false", stdout);
+    } else if (type == RESULT_TYPE_BIGINT) {
+        printf("%lld", (long long)result_value_int64(result, column, row));
     } else {
-        char *value = duckdb_value_varchar(result, column, row);
+        char *value = result_value_varchar(result, column, row);
         if (!value) {
             fputs(json ? "null" : "unknown", stdout);
         } else if (json) {
@@ -55,14 +55,14 @@ static void print_value(duckdb_result *result, idx_t column, idx_t row, bool jso
         } else {
             print_text(value);
         }
-        duckdb_free(value);
+        result_free(value);
     }
 }
 
-void print_row(duckdb_result *result, idx_t row, bool json) {
+void print_row(catalog_result *result, idx_t row, bool json) {
     bool has_distance_ly = false;
-    for (idx_t column = 0; column < duckdb_column_count(result); ++column) {
-        if (strcmp(duckdb_column_name(result, column), "distance_ly") == 0) {
+    for (idx_t column = 0; column < result_column_count(result); ++column) {
+        if (strcmp(result_column_name(result, column), "distance_ly") == 0) {
             has_distance_ly = true;
             break;
         }
@@ -71,8 +71,8 @@ void print_row(duckdb_result *result, idx_t row, bool json) {
         putchar('{');
     }
     bool first = true;
-    for (idx_t column = 0; column < duckdb_column_count(result); ++column) {
-        const char *name = duckdb_column_name(result, column);
+    for (idx_t column = 0; column < result_column_count(result); ++column) {
+        const char *name = result_column_name(result, column);
         if (strcmp(name, "match_count") == 0) {
             continue;
         }
@@ -89,10 +89,10 @@ void print_row(duckdb_result *result, idx_t row, bool json) {
         if (!json) {
             putchar('\n');
             if (strcmp(name, "distance_pc") == 0 && !has_distance_ly) {
-                if (duckdb_value_is_null(result, column, row)) {
+                if (result_value_is_null(result, column, row)) {
                     printf("%-24s  unknown\n%-24s  unknown\n", "distance_ly", "distance_ld");
                 } else {
-                    double light_years = duckdb_value_double(result, column, row) * 3.2615637771674336;
+                    double light_years = result_value_double(result, column, row) * 3.2615637771674336;
                     printf("%-24s  %.8g\n%-24s  %.8g\n", "distance_ly", light_years,
                            "distance_ld", light_years * 365.25);
                 }
@@ -105,11 +105,11 @@ void print_row(duckdb_result *result, idx_t row, bool json) {
     }
 }
 
-void print_rows(duckdb_result *result, bool json, bool array) {
+void print_rows(catalog_result *result, bool json, bool array) {
     if (json && array) {
         putchar('[');
     }
-    for (idx_t row = 0; row < duckdb_row_count(result); ++row) {
+    for (idx_t row = 0; row < result_row_count(result); ++row) {
         if (row) {
             fputs(json ? "," : "\n", stdout);
         }

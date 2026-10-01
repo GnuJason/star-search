@@ -1,22 +1,26 @@
 cmake_minimum_required(VERSION 3.20)
-project(star-search VERSION 0.1.0 LANGUAGES C)
+project(star-search VERSION 1.0.0 LANGUAGES C)
 
 include(GNUInstallDirs)
 include(CTest)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(DUCKDB_ROOT "" CACHE PATH "DuckDB C SDK directory")
-find_path(DUCKDB_INCLUDE_DIR duckdb.h HINTS "${DUCKDB_ROOT}" PATH_SUFFIXES include REQUIRED)
-find_library(DUCKDB_LIBRARY duckdb HINTS "${DUCKDB_ROOT}" PATH_SUFFIXES lib lib64 REQUIRED)
+# Catalog data comes from the star-search web API (libcurl + cJSON); rendering
+# stays local. A v2.0 optional DuckDB backend would plug in behind catalog.h.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
+pkg_check_modules(CJSON REQUIRED IMPORTED_TARGET libcjson)
+set(STAR_SEARCH_DEFAULT_API_URL "https://starsearch.online" CACHE STRING
+    "Default catalog API base URL (overridden at runtime by STAR_SEARCH_API_URL)")
 
 # Vendored single-file PNG encoder (public domain / MIT); third-party code is
 # built without the project's -Werror warning set.
 add_library(stb_image_write STATIC src/third_party/stb_image_write_impl.c)
 target_compile_options(stb_image_write PRIVATE -w)
 
-add_executable(star-search src/main.c src/catalog.c src/format.c src/star_params.c src/render.c)
-target_include_directories(star-search PRIVATE "${DUCKDB_INCLUDE_DIR}" src)
-target_link_libraries(star-search PRIVATE "${DUCKDB_LIBRARY}" stb_image_write m)
+add_executable(star-search src/main.c src/catalog.c src/result.c src/format.c src/star_params.c src/render.c)
+target_include_directories(star-search PRIVATE src)
+target_link_libraries(star-search PRIVATE PkgConfig::CURL PkgConfig::CJSON stb_image_write m)
 # Determinism: forbid fused multiply-add contraction and value-changing float
 # optimisations in the CPU shader evaluator so output bytes are reproducible.
 set_source_files_properties(src/render.c src/star_params.c PROPERTIES
@@ -24,7 +28,7 @@ set_source_files_properties(src/render.c src/star_params.c PROPERTIES
 target_compile_definitions(star-search PRIVATE
     _POSIX_C_SOURCE=200809L _XOPEN_SOURCE=700
     STAR_SEARCH_VERSION="${PROJECT_VERSION}"
-    STAR_SEARCH_DATA_DIR="${CMAKE_INSTALL_FULL_DATADIR}/star-search")
+    STAR_SEARCH_DEFAULT_API_URL="${STAR_SEARCH_DEFAULT_API_URL}")
 target_compile_options(star-search PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
 install(TARGETS star-search RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

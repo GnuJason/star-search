@@ -1,4 +1,4 @@
-.TH STAR-SEARCH 1 "September 2026" "star-search 0.1.0"
+.TH STAR-SEARCH 1 "September 2026" "star-search 1.0.0"
 .SH NAME
 star-search \- query an offline stellar catalog
 .SH SYNOPSIS
@@ -47,8 +47,10 @@ star-search \- query an offline stellar catalog
 .RB [ --json ]
 .RB [ --catalog-info | --version ]
 .SH DESCRIPTION
-Queries local Parquet data through embedded DuckDB. With no command, prompts
-for one star name or stable ID. No network lookup or extension download occurs.
+Queries the star-search catalog web API (the same data served by
+https://starsearch.online) over HTTPS. Network access is required for catalog
+lookups; portraits are rendered locally. With no command, prompts for one star
+name or stable ID.
 Exact stable IDs take precedence over exact names and aliases, followed by
 literal substring search. Ambiguity produces up to ten candidates ordered by ID.
 Select a component by performing another lookup with its stable ID.
@@ -73,8 +75,7 @@ N must be between 1 and 10000. Ties are ordered by stable ID.
 .B recons-nearest [N]
 Show RECONS stellar components in the first N ranked systems, default 100.
 N must be between 1 and 100. This is the RECONS list accurate as of 2012-01-01,
-not a current census. RECONS data must be available beside the catalog or through
-.BR STAR_SEARCH_RECONS_DATA .
+not a current census.
 .TP
 .B recons-info NAME_OR_ID
 Look up a RECONS CNS name, common name, or component ID. Ambiguous systems require
@@ -122,14 +123,8 @@ Show the program version without opening a catalog.
 Show command syntax without opening a catalog.
 .SH ENVIRONMENT
 .TP
-.B STAR_SEARCH_DATA_DIR
-Override the catalog directory, normally /usr/share/star-search.
-It must contain stars.parquet, aliases.parquet, and catalog.json.
-Paths containing glob characters are not supported.
-.TP
-.B STAR_SEARCH_RECONS_DATA
-Optional path to recons_nearest.parquet. If unset, star-search checks the catalog
-directory for that file.
+.B STAR_SEARCH_API_URL
+Base URL of the catalog API, default https://starsearch.online.
 .TP
 .B STAR_SEARCH_ASSETS_DIR
 Directory for default
@@ -139,8 +134,7 @@ output, default assets/stars relative to the working directory.
 0 success; 1 runtime, catalog or file write error; 2 invalid usage; 3 no match;
 4 ambiguous match.
 .SH LIMITATIONS
-The development fixture is synthetic and not suitable for scientific use.
-Nearest results describe the installed catalog, not a complete census.
+Nearest results describe the served catalog, not a complete census.
 There is no online enrichment or mass estimation. Luminosity and radius are
 estimated only to size rendered portraits; they are approximate and are not
 reported as catalog measurements. Portraits are scientific visualisations,

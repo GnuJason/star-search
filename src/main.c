@@ -20,7 +20,7 @@ static void usage(void) {
          "       star-search [--json] --catalog-info\n"
          "       star-search [--json] --version\n"
          "       star-search [--json]\n\n"
-         "Catalog directory: STAR_SEARCH_DATA_DIR (default: " STAR_SEARCH_DATA_DIR ")\n"
+         "Catalog API: STAR_SEARCH_API_URL (default: " STAR_SEARCH_DEFAULT_API_URL ")\n"
          "render writes $STAR_SEARCH_ASSETS_DIR/<source_id>.png (default assets/stars/);\n"
          "  --size 16..4096 (default 512), --phase 0..1 for Gaia-flagged variables.\n"
          "Quote names containing spaces. Missing measurements are unknown/null.");
@@ -37,13 +37,13 @@ static char *trim(char *text) {
     return text;
 }
 
-static int report_lookup(duckdb_result *result, bool json, idx_t name_column) {
+static int report_lookup(catalog_result *result, bool json, idx_t name_column) {
     int status = 0;
-    idx_t rows = duckdb_row_count(result);
+    idx_t rows = result_row_count(result);
     if (!rows) {
         status = print_error(json, 3, "not_found", "No matching star in this catalog.");
     } else if (rows > 1) {
-        int64_t total = duckdb_value_int64(result, duckdb_column_count(result) - 1, 0);
+        int64_t total = result_value_int64(result, result_column_count(result) - 1, 0);
         if (json) {
             printf("{\"error\":\"ambiguous\",\"message\":\"Select a stable ID.\","
                    "\"match_count\":%lld,\"truncated\":%s,\"candidates\":[",
@@ -53,9 +53,9 @@ static int report_lookup(duckdb_result *result, bool json, idx_t name_column) {
                     (long long)total, (unsigned long long)rows);
         }
         for (idx_t row = 0; row < rows; ++row) {
-            char *identifier = duckdb_value_varchar(result, 0, row);
-            char *name = duckdb_value_is_null(result, name_column, row) ? NULL :
-                         duckdb_value_varchar(result, name_column, row);
+            char *identifier = result_value_varchar(result, 0, row);
+            char *name = result_value_is_null(result, name_column, row) ? NULL :
+                         result_value_varchar(result, name_column, row);
             if (json) {
                 if (row) {
                     putchar(',');
@@ -75,8 +75,8 @@ static int report_lookup(duckdb_result *result, bool json, idx_t name_column) {
                 print_json_string(name ? name : "unknown");
                 putchar('\n');
             }
-            duckdb_free(identifier);
-            duckdb_free(name);
+            result_free(identifier);
+            result_free(name);
         }
         if (json) {
             puts("]}");
@@ -89,13 +89,13 @@ static int report_lookup(duckdb_result *result, bool json, idx_t name_column) {
 }
 
 static int lookup(catalog *catalogue, const char *term, bool coordinates, bool json) {
-    duckdb_result result = {0};
+    catalog_result result = {0};
     if (!catalog_lookup(catalogue, term, coordinates, &result)) {
-        duckdb_destroy_result(&result);
+        result_destroy(&result);
         return print_error(json, 1, "query_error", "Unable to query catalog.");
     }
     int status = report_lookup(&result, json, coordinates ? 1 : 2);
-    duckdb_destroy_result(&result);
+    result_destroy(&result);
     return status;
 }
 
@@ -105,12 +105,12 @@ typedef struct {
     double phase;
 } render_options;
 
-static double column_double(duckdb_result *result, idx_t column) {
-    return duckdb_value_is_null(result, column, 0) ? NAN : duckdb_value_double(result, column, 0);
+static double column_double(catalog_result *result, idx_t column) {
+    return result_value_is_null(result, column, 0) ? NAN : result_value_double(result, column, 0);
 }
 
-static char *column_text(duckdb_result *result, idx_t column) {
-    return duckdb_value_is_null(result, column, 0) ? NULL : duckdb_value_varchar(result, column, 0);
+static char *column_text(catalog_result *result, idx_t column) {
+    return result_value_is_null(result, column, 0) ? NULL : result_value_varchar(result, column, 0);
 }
 
 /* Default portrait path: <assets>/<gaia source_id>.png, or the catalog id with
@@ -158,14 +158,14 @@ static void print_json_text(const char *text) {
 
 static int render_command(catalog *catalogue, const char *term, const render_options *options,
                           bool json) {
-    duckdb_result result = {0};
+    catalog_result result = {0};
     if (!catalog_render_lookup(catalogue, term, &result)) {
-        duckdb_destroy_result(&result);
+        result_destroy(&result);
         return print_error(json, 1, "query_error", "Unable to query catalog.");
     }
-    if (duckdb_row_count(&result) != 1) {
+    if (result_row_count(&result) != 1) {
         int status = report_lookup(&result, json, 2);
-        duckdb_destroy_result(&result);
+        result_destroy(&result);
         return status;
     }
     char *identifier = column_text(&result, 0);
@@ -174,8 +174,8 @@ static int render_command(catalog *catalogue, const char *term, const render_opt
     char *variable_flag = column_text(&result, 9);
     star_inputs inputs = {
         .id = identifier,
-        .has_source_id = !duckdb_value_is_null(&result, 1, 0),
-        .source_id = duckdb_value_int64(&result, 1, 0),
+        .has_source_id = !result_value_is_null(&result, 1, 0),
+        .source_id = result_value_int64(&result, 1, 0),
         .spectral_type = spectral_type,
         .variable_flag = variable_flag,
         .phot_g_mean_mag = column_double(&result, 4),
@@ -264,11 +264,11 @@ static int render_command(catalog *catalogue, const char *term, const render_opt
     }
     free(rgb);
     free(path);
-    duckdb_free(identifier);
-    duckdb_free(name);
-    duckdb_free(spectral_type);
-    duckdb_free(variable_flag);
-    duckdb_destroy_result(&result);
+    result_free(identifier);
+    result_free(name);
+    result_free(spectral_type);
+    result_free(variable_flag);
+    result_destroy(&result);
     return status;
 }
 
@@ -389,18 +389,18 @@ int main(int argc, char **argv) {
         free(input);
         return print_error(json, 2, "usage", "Star name or ID must not be empty.");
     }
-    const char *directory = getenv("STAR_SEARCH_DATA_DIR");
-    if (!directory || !*directory) {
-        directory = STAR_SEARCH_DATA_DIR;
+    const char *api_url = getenv("STAR_SEARCH_API_URL");
+    if (!api_url || !*api_url) {
+        api_url = STAR_SEARCH_DEFAULT_API_URL;
     }
     catalog catalogue = {0};
     int status;
-    if (!catalog_open(&catalogue, directory)) {
+    if (!catalog_open(&catalogue, api_url)) {
         status = print_error(json, 1, "catalog_error",
-            "Cannot open catalog. Install star-search-data or set STAR_SEARCH_DATA_DIR; "
-            "DuckDB must include built-in Parquet and JSON support.");
+            "Cannot initialise the catalog API client. Set STAR_SEARCH_API_URL to an "
+            "http(s):// URL (default " STAR_SEARCH_DEFAULT_API_URL ").");
     } else if (metadata || nearest || recons_nearest) {
-        duckdb_result result = {0};
+        catalog_result result = {0};
         bool success = metadata ? catalog_metadata(&catalogue, &result) :
                        nearest ? catalog_nearest(&catalogue, count, &result) :
                                  catalog_recons_nearest(&catalogue, count, &result);
@@ -410,15 +410,15 @@ int main(int argc, char **argv) {
         } else {
             status = print_error(json, 1, "query_error", "Unable to query catalog.");
         }
-        duckdb_destroy_result(&result);
+        result_destroy(&result);
     } else if (recons_info) {
-        duckdb_result result = {0};
+        catalog_result result = {0};
         if (catalog_recons_lookup(&catalogue, term, &result)) {
             status = report_lookup(&result, json, 2);
         } else {
             status = print_error(json, 1, "query_error", "Unable to query RECONS data.");
         }
-        duckdb_destroy_result(&result);
+        result_destroy(&result);
     } else if (render) {
         status = render_command(&catalogue, term, &options, json);
     } else {
