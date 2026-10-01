@@ -142,6 +142,8 @@ export interface CatalogQuery {
   order?: "asc" | "desc";
   page?: number;
   pageSize?: number;
+  /** Return the first `limit` rows (1..10000) in one page, bypassing pagination (CLI `nearest N`). */
+  limit?: number;
 }
 
 /** Spectral class from the catalog type, else from Teff (Pecaut & Mamajek 2013 boundaries). */
@@ -166,7 +168,9 @@ export function spectralClass(star: Star): string {
 export function queryCatalog(query: CatalogQuery) {
   const data = getDataset();
   if (!data) return null;
-  const pageSize = Math.min(Math.max(query.pageSize ?? 50, 1), 500);
+  const pageSize = query.limit !== undefined
+    ? Math.min(Math.max(Math.floor(query.limit), 1), 10000)
+    : Math.min(Math.max(query.pageSize ?? 50, 1), 500);
   const q = query.q ? norm(query.q) : "";
   const classes = (query.spectral ?? "").toUpperCase().replace(/[^OBAFGKMLTYD]/g, "");
   let rows = data.stars.filter((star) => {
@@ -202,7 +206,7 @@ export function queryCatalog(query: CatalogQuery) {
   });
   const total = rows.length;
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(Math.max(query.page ?? 1, 1), pages);
+  const page = query.limit !== undefined ? 1 : Math.min(Math.max(query.page ?? 1, 1), pages);
   return {
     total,
     page,
