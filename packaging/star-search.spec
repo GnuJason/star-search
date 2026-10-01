@@ -1,92 +1,75 @@
-# Packaging: star-search for openSUSE
+#
+# spec file for package star-search
+#
+# Copyright (c) 2026 Jason
+#
+# All modifications and additions to the file contributed by third parties
+# are copyrighted by their respective owners.
+#
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
 
-This directory holds the reproducible packaging inputs for submitting the\
-`star-search` CLI to openSUSE (target devel project: `utilities`).
+Name:           star-search
+Version:        1.0
+Release:        1%{?dist}
+Summary:        CLI tool for nearest-star catalog exploration and rendering
+License:        GPL-3.0-or-later
+URL:            https://starsearch.online
+Source0:        star-search-1.0.tar.gz
+Group:          Productivity/Scientific/Astronomy
 
-The package ships **only** the C/GLSL command-line tool, its man page, its GLSL\
-shaders, and its docs. It contains **no catalog datasets, no web front-end, and\
-no generated star portraits**.
+BuildRequires:  cmake >= 3.20
+BuildRequires:  gcc
+BuildRequires:  pkgconfig
+BuildRequires:  pkgconfig(libcjson)
+BuildRequires:  pkgconfig(libcurl)
 
-## Files
+%description
+star-search is a scientific command-line tool for exploring the catalog of
+nearby stars. It provides catalog queries, nearest-star listings, coordinate
+conversions, and deterministic star-portrait rendering driven by a C + GLSL
+shader evaluated on the CPU.
 
-* `star-search.spec` — the RPM spec (openSUSE header, GPL-3.0-or-later, cmake build).
+Catalog lookups are served by the star-search HTTP API (default
+https://starsearch.online, overridable with STAR_SEARCH_API_URL), so network
+access is required for queries; portraits are rendered locally. This package
+contains the CLI and its documentation only, no datasets, website, or
+generated portraits.
 
-## Dependencies
+%prep
+%setup -q -n star-search-1.0
 
-star-search 1.0 is a lightweight, API-backed CLI written in C. Its only\
-external libraries are:
+%build
+# Explicit cmake calls keep the spec portable; on openSUSE the %%cmake /
+# %%cmake_build / %%cmake_install macros may be substituted.
+cmake -B build -S . \
+      -DCMAKE_INSTALL_PREFIX=%{_prefix} \
+      -DCMAKE_INSTALL_DOCDIR=%{_docdir}/%{name} \
+      -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DBUILD_TESTING=OFF
+cmake --build build %{?_smp_mflags}
 
-| Purpose | BuildRequires | Runtime (auto-generated soname dep) |
-| --- | --- | --- |
-| HTTP client | `pkgconfig(libcurl)` | `libcurl.so.4` |
-| JSON parsing | `pkgconfig(libcjson)` | `libcjson.so.1` |
+%install
+DESTDIR=%{buildroot} cmake --install build
 
-Both are packaged in openSUSE Factory, so the package builds on OBS with no\
-external-dependency blocker. Plus the toolchain: `gcc`, `cmake >= 3.20`,\
-`pkgconfig` (no C++ compiler is needed). PNG encoding uses the vendored,\
-header-only `stb_image_write`.
+%files
+# README.md and catalog-contract.md are installed into the doc dir by CMake,
+# so the directory is owned here instead of re-listed with %%doc.
+%license COPYING
+%{_bindir}/star-search
+%{_datadir}/star-search/
+%{_docdir}/%{name}/
+%{_mandir}/man1/star-search.1*
 
-## Runtime configuration
-
-Catalog lookups go over HTTPS to the star-search API; rendering is local.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `STAR_SEARCH_API_URL` | `https://starsearch.online` | Catalog API base URL |
-| `STAR_SEARCH_ASSETS_DIR` | `assets/stars/` | Where `render` writes PNGs |
-
-## Reproduce the source tarball
-
-The **final** submission tarball must come from a clean `git archive` of the\
-committed API-backed code. `.gitattributes` carries `export-ignore` rules that\
-strip `/data`, `/web`, `/gaia_datasets`, `/assets`, and `/.vscode`, so no\
-datasets/website/portraits can leak in.
-
-```sh
-cd <repo root>
-git archive --format=tar.gz --prefix=star-search-1.0/ \
-    -o ~/rpmbuild/SOURCES/star-search-1.0.tar.gz HEAD
-# verify it is source-only:
-tar tzf ~/rpmbuild/SOURCES/star-search-1.0.tar.gz \
-    | grep -iE '\.parquet|/web/|\.png|\.so|duckdb' || echo "clean"
-```
-
-(Before the API-backed code is committed, a verification tarball can be built\
-from the working tree with the same exclusions; it is not meant for submission.)
-
-## Local build + lint
-
-```sh
-cp packaging/star-search.spec ~/rpmbuild/SPECS/
-rpmlint ~/rpmbuild/SPECS/star-search.spec
-rpmbuild -ba ~/rpmbuild/SPECS/star-search.spec     # add --nodeps on a non-openSUSE host
-rpm -qlp ~/rpmbuild/RPMS/x86_64/star-search-1.0-1.x86_64.rpm
-rpm -qp --requires ~/rpmbuild/RPMS/x86_64/star-search-1.0-1.x86_64.rpm
-```
-
-Expected rpmlint result on the spec: 0 errors. Warnings seen under the Ubuntu\
-rpmlint profile (`no-buildroot-tag`, `invalid-url` on a local Source0) are\
-cosmetic; OBS supplies packager/signature/compression handling.
-
-## Submit to openSUSE (requires your OBS account/credentials)
-
-These steps need your `osc` login (`~/.config/osc/oscrc`) and network access to\
-`build.opensuse.org`; run them yourself:
-
-```sh
-osc checkout home:gnujason:star-search star-search        # or: osc mkpac star-search
-cd home:gnujason:star-search/star-search
-cp <repo>/packaging/star-search.spec .
-cp ~/rpmbuild/SOURCES/star-search-1.0.tar.gz .
-osc addremove
-osc commit -m "star-search 1.0: initial openSUSE package (API-backed CLI)"
-osc results          # wait for a clean build on the enabled repositories
-osc sr home:gnujason:star-search utilities
-```
-
-## Roadmap: v2.0 optional local backend
-
-A future release may add an optional offline, DuckDB-backed catalog mode for\
-power users who want to query local Parquet files. It will plug in behind\
-`src/catalog.h` and ship as a **separate, non-Factory build**, so this Factory\
-package stays dependency-light (libcurl + libcjson only).
+%changelog
+* Wed Sep 30 2026 Jason <jason@starsearch.online> - 1.0-1
+- Initial package for openSUSE devel submission (version 1.0).
+- Catalog backend switched to the star-search HTTP API (libcurl + cJSON);
+  the base URL is configurable via STAR_SEARCH_API_URL and defaults to
+  https://starsearch.online. Portrait rendering remains local.
+- Removed the DuckDB build and runtime dependency; the package now depends
+  only on libcurl and libcjson, both available in openSUSE Factory.
+- An optional local (offline) catalog backend is planned for a future
+  release and will ship separately so this package stays dependency-light.
+- Pure CLI: datasets, the web front-end, and generated portraits are not
+  included in the source tarball.
