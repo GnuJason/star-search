@@ -114,6 +114,82 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+## Command reference
+
+Synopsis: `star-search [--json] COMMAND [ARGS]`. With no command, the CLI prompts
+for one star name or stable ID and performs a single lookup. All catalog queries
+need network access to the API; portrait rendering is always local.
+
+### Lookup commands
+
+| Command | Description |
+| --- | --- |
+| `info NAME_OR_ID` | Identity, distance, coordinates, epoch and available photometry. Unknown fields print as `unknown` (`null` in JSON). |
+| `star NAME_OR_ID` | Alias of `info`. |
+| `coords NAME_OR_ID` | ICRS and Galactic coordinates in degrees and the reference epoch (not propagated to the current date). |
+| `nearest N` | The nearest `N` entries with known positive distance. `N` is 1–10000; ties are ordered by stable ID. |
+| `recons-nearest [N]` | RECONS components in the first `N` ranked systems. `N` is 1–100, default 100. This is the 2012 RECONS list, not a current census. |
+| `recons-info NAME_OR_ID` | Look up a RECONS CNS name, common name, or component ID. |
+| `render NAME_OR_ID` | Render a deterministic PNG portrait (see options below). |
+
+### `render` options
+
+| Option | Description |
+| --- | --- |
+| `--size PX` | Square image size, 16–4096 pixels, default 512. |
+| `-o FILE`, `--output FILE` | Write the portrait to `FILE` instead of the default path; parent directories are created. |
+| `--phase P` | Variability phase in `[0, 1]` for stars Gaia flags as VARIABLE, default 0; ignored for non-variable stars. |
+
+The default output path is `$STAR_SEARCH_ASSETS_DIR/<gaia_source_id>.png`
+(directory `assets/stars` when unset). Stars without a Gaia ID use their stable
+ID with unsafe characters replaced by `-`. The same star with the same options
+produces a byte-identical file.
+
+### Info flags
+
+| Flag | Description |
+| --- | --- |
+| `--json` | Machine-readable output: an object for a single lookup, an array for `nearest`/`recons-nearest`. IDs are strings, distances are in parsecs, errors are JSON objects. Prompts and diagnostics go to stderr. |
+| `--catalog-info` | Source release, selection policy, attribution and limitations. |
+| `--version` | Print the version without opening a catalog. |
+| `--help` | Print command syntax without opening a catalog. |
+
+### Environment variables
+
+| Variable | Description |
+| --- | --- |
+| `STAR_SEARCH_API_URL` | Base URL of the catalog API. Must be an `http(s)://` URL; default `https://starsearch.online`. |
+| `STAR_SEARCH_ASSETS_DIR` | Directory for default `render` output; default `assets/stars` relative to the working directory. |
+
+### Exit status
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success |
+| `1` | Runtime, catalog or file-write error |
+| `2` | Invalid usage |
+| `3` | No match |
+| `4` | Ambiguous match (candidate stable IDs are shown; re-run with one) |
+
+### Examples
+
+```sh
+star-search info "Barnard's Star"
+star-search star "GJ 65 A"                        # star == info
+star-search coords Sirius
+star-search nearest 10
+star-search recons-nearest 25
+star-search recons-info "Proxima Centauri"
+star-search --json nearest 5                      # JSON array to stdout
+star-search render Betelgeuse --size 1024 --phase 0.3 -o betelgeuse.png
+STAR_SEARCH_API_URL=http://localhost:3000 star-search info Vega
+star-search --catalog-info
+star-search --version
+```
+
+Quote names that contain spaces. An exact stable ID wins over exact names and
+aliases, which win over literal substring matches.
+
 ## CLI behaviour
 
 An ambiguous lookup exits with status 4 and shows stable IDs to select. Quote
