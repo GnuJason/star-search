@@ -234,9 +234,12 @@ Recommended installation methods:
 4. **Debian / Ubuntu** — no `.deb` is currently provided; use the from-source
    method above, which builds against your system's own libraries.
 
-No project APT or RPM repository is hosted yet, and no GitHub Release is published
+Prebuilt downloads (source tarball, RPM, and source RPM) are published on the
+[v1.0 GitHub Release](https://github.com/GnuJason/star-search/releases/tag/v1.0),
+with `SHA256SUMS` for verification. No project APT or RPM *repository* is hosted
 yet, so there is no `apt install star-search` or `zypper install star-search`
-path at this time. The sections below describe exactly what works today.
+(from a repository) path at this time. The sections below describe exactly what
+works today.
 
 ### Distribution support
 
@@ -310,19 +313,16 @@ a custom prefix may require setting `PKG_CONFIG_PATH`.
 
 ### Install from the source tarball
 
-If you do not want to clone the repository, build a reproducible, dataset-free
-source tarball from a clean checkout. `.gitattributes` strips the datasets,
-website, and portraits, so only the C/GLSL CLI, its man page, shaders, and docs
-are included:
+If you do not want to clone the repository, download the source tarball from the
+[v1.0 release](https://github.com/GnuJason/star-search/releases/tag/v1.0) — it is
+reproducible and dataset-free (`.gitattributes` strips the datasets, website, and
+portraits, so only the C/GLSL CLI, its man page, shaders, and docs are included).
+Download, verify, extract, build, and install:
 
 ```sh
-git archive --format=tar.gz --prefix=star-search-1.0/ \
-  -o star-search-1.0.tar.gz HEAD
-```
-
-Then extract and build it exactly like a source checkout:
-
-```sh
+wget https://github.com/GnuJason/star-search/releases/download/v1.0/star-search-1.0.tar.gz
+wget https://github.com/GnuJason/star-search/releases/download/v1.0/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
 tar -xvf star-search-1.0.tar.gz
 cd star-search-1.0
 cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr
@@ -331,9 +331,14 @@ sudo cmake --install build
 star-search --version
 ```
 
-When a tagged v1.0 GitHub Release is published, this same `star-search-1.0.tar.gz`
-will be downloadable from the release page, so the method will need neither Git
-nor a clone.
+`wget` is only a download tool; a browser download from the release page works
+too. If you already have the repository cloned, you can produce the identical
+tarball yourself without the release:
+
+```sh
+git archive --format=tar.gz --prefix=star-search-1.0/ \
+  -o star-search-1.0.tar.gz HEAD
+```
 
 ### RPM installation
 
@@ -342,20 +347,31 @@ submission notes. The spec builds `star-search` 1.0 against `pkgconfig(libcurl)`
 and `pkgconfig(libcjson)` with no DuckDB or bundled dependencies — both libraries
 are in openSUSE Factory, which is what makes the package submittable.
 
-Build the RPM from the reproducible tarball and install it:
+A prebuilt x86_64 RPM is attached to the
+[v1.0 release](https://github.com/GnuJason/star-search/releases/tag/v1.0).
+Download and install it:
+
+```sh
+wget https://github.com/GnuJason/star-search/releases/download/v1.0/star-search-1.0-1.x86_64.rpm
+sudo zypper install ./star-search-1.0-1.x86_64.rpm # or: sudo rpm -i ./star-search-1.0-1.x86_64.rpm
+star-search --version
+```
+
+`zypper install ./<file>.rpm` resolves runtime dependencies from your enabled
+repositories; `rpm -i` does not. A source RPM (`star-search-1.0-1.src.rpm`) is
+also attached for rebuilding on your own system.
+
+To build the RPM yourself from the reproducible tarball instead:
 
 ```sh
 cp packaging/star-search.spec ~/rpmbuild/SPECS/
 git archive --format=tar.gz --prefix=star-search-1.0/ \
   -o ~/rpmbuild/SOURCES/star-search-1.0.tar.gz HEAD
 rpmbuild -ba ~/rpmbuild/SPECS/star-search.spec     # add --nodeps on a non-openSUSE host
-sudo zypper install ./star-search-1.0-1.x86_64.rpm # or: sudo rpm -i <path to the .rpm>
-star-search --version
 ```
 
-`zypper install ./<file>.rpm` resolves runtime dependencies from your enabled
-repositories; `rpm -i` does not. For other RPM-based distributions, rebuild from
-the tarball with their equivalent libcurl and libcjson development packages.
+For other RPM-based distributions, rebuild from the tarball (or the source RPM)
+with their equivalent libcurl and libcjson development packages.
 
 #### openSUSE submission status
 
